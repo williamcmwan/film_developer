@@ -48,18 +48,22 @@ uint16_t color565(uint8_t r, uint8_t g, uint8_t b) {
   return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
 
-// Center buttons on screen (320x240 with rotation 1)
-// Button width: 160, height: 50
-// X position: (320 - 160) / 2 = 80
-Button startButton = { 80, 60, 160, 50, "START", color565(0, 255, 0) }; // Green
-Button stopButton = { 80, 130, 160, 50, "STOP", color565(255, 0, 0) };   // Red
+// Buttons at bottom of screen (320x240 with rotation 1)
+// Button width: 140, height: 50
+// Y position: 240 - 60 = 180 (60px from bottom)
+Button startButton = { 10, 180, 140, 50, "START", color565(0, 255, 0) }; // Green
+Button stopButton = { 170, 180, 140, 50, "STOP", color565(255, 0, 0) };   // Red
 
 volatile bool stopRequested = false;
+volatile bool timerRunning = false;
+unsigned long timerStartMillis = 0;
+unsigned long elapsedSeconds = 0;
 
-void drawButton(Button &btn) {
-  gfx->fillRoundRect(btn.x, btn.y, btn.w, btn.h, 10, btn.color);
+void drawButton(Button &btn, bool pressed = false) {
+  uint16_t btnColor = pressed ? color565(255, 255, 255) : btn.color; // White when pressed
+  gfx->fillRoundRect(btn.x, btn.y, btn.w, btn.h, 10, btnColor);
   gfx->setTextColor(0x0000);  // Black
-  gfx->setTextSize(3);
+  gfx->setTextSize(2);
   int16_t tbx, tby;
   uint16_t tbw, tbh;
   gfx->getTextBounds(btn.label, 0, 0, &tbx, &tby, &tbw, &tbh);
@@ -67,6 +71,39 @@ void drawButton(Button &btn) {
   int ty = btn.y + (btn.h - tbh) / 2;
   gfx->setCursor(tx, ty);
   gfx->print(btn.label);
+}
+
+void flashButton(Button &btn) {
+  drawButton(btn, true);  // Flash white
+  delay(100);
+  drawButton(btn, false); // Back to normal
+}
+
+void clearTimerArea() {
+  // Clear the middle area where timer is displayed
+  gfx->fillRect(0, 40, SCREEN_WIDTH, 120, 0x0000);
+}
+
+void displayTimer(unsigned long seconds) {
+  unsigned long minutes = seconds / 60;
+  unsigned long secs = seconds % 60;
+  
+  char timeStr[6];
+  sprintf(timeStr, "%02lu:%02lu", minutes, secs);
+  
+  gfx->setTextSize(6);
+  gfx->setTextColor(color565(255, 255, 255)); // White
+  
+  int16_t tbx, tby;
+  uint16_t tbw, tbh;
+  gfx->getTextBounds(timeStr, 0, 0, &tbx, &tby, &tbw, &tbh);
+  
+  int tx = (SCREEN_WIDTH - tbw) / 2;
+  int ty = (SCREEN_HEIGHT - tbh) / 2 - 20; // Slightly above center
+  
+  clearTimerArea();
+  gfx->setCursor(tx, ty);
+  gfx->print(timeStr);
 }
 
 bool isInsideButton(int x, int y, Button &btn) {
@@ -105,13 +142,25 @@ void motorCounterClockwise() {
   digitalWrite(motorPin2, HIGH);
 }
 
-// Check for stop button press during motor sequence
+// Check for stop button press and update timer during motor sequence
 void checkStopButton() {
+  // Update timer display
+  if (timerRunning) {
+    unsigned long currentSeconds = (millis() - timerStartMillis) / 1000;
+    if (currentSeconds != elapsedSeconds) {
+      elapsedSeconds = currentSeconds;
+      displayTimer(elapsedSeconds);
+    }
+  }
+  
+  // Check for touch
   int tx, ty;
   if (readTouch(tx, ty)) {
     if (isInsideButton(tx, ty, stopButton)) {
       Serial.println("[BUTTON] STOP pressed during sequence");
+      flashButton(stopButton);
       stopRequested = true;
+      timerRunning = false;
       delay(200); // Debounce
     }
   }
@@ -181,16 +230,38 @@ void setup(void) {
 }
 
 void loop() {
+  // Update timer if running
+  if (timerRunning) {
+    unsigned long currentSeconds = (millis() - timerStartMillis) / 1000;
+    if (currentSeconds != elapsedSeconds) {
+      elapsedSeconds = currentSeconds;
+      displayTimer(elapsedSeconds);
+    }
+  }
+  
   int tx, ty;
   if (readTouch(tx, ty)) {
     if (isInsideButton(tx, ty, startButton)) {
       Serial.println("[BUTTON] START pressed - Beginning motor sequence");
+      flashButton(startButton);
+      
+      // Start timer
+      timerRunning = true;
+      timerStartMillis = millis();
+      elapsedSeconds = 0;
+      displayTimer(0);
+      
       stopRequested = false;
       runMotorSequence();
-      Serial.println("[MOTOR] Sequence complete");
+      
+      timerRunning = false;
+      Serial.printf("[MOTOR] Sequence complete - Total time: %02lu:%02lu\n", 
+                    elapsedSeconds / 60, elapsedSeconds % 60);
     } else if (isInsideButton(tx, ty, stopButton)) {
       Serial.println("[BUTTON] STOP pressed - Stopping motor");
+      flashButton(stopButton);
       stopRequested = true;
+      timerRunning = false;
       stopMotor();
     } else {
       Serial.printf("[TOUCH] Touch outside buttons at X=%d, Y=%d\n", tx, ty);
