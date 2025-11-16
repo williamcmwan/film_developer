@@ -178,88 +178,45 @@ void reverseMotor() {
   setMotorDirection(!motorDirection);
 }
 
-// Buzzer control - melody for overtime notification
-// Simple melody: C5-E5-G5-C6 (ascending notes)
+// Buzzer - melody for overtime notification
 const int melodyNotes[] = {523, 659, 784, 1047};  // C5, E5, G5, C6
-const int noteDurations[] = {200, 200, 200, 400};  // milliseconds
-const int melodyLength = 4;
+const int noteDurations[] = {200, 200, 200, 400};
 int currentNote = 0;
-unsigned long lastNoteTime = 0;
-int lastPlayedNote = -1;  // Track which note is currently playing
+unsigned long noteStartTime = 0;
 
 void startBuzzer() {
   buzzerActive = true;
-  buzzerStartTime = millis();
   currentNote = 0;
-  lastNoteTime = millis();
-  lastPlayedNote = -1;
-  Serial.println("[BUZZER] Started - playing melody");
+  noteStartTime = millis();
+  tone(buzzerPin, melodyNotes[0]);
 }
 
 void stopBuzzer() {
   buzzerActive = false;
   noTone(buzzerPin);
   digitalWrite(buzzerPin, LOW);
-  currentNote = 0;
-  lastPlayedNote = -1;
-  Serial.println("[BUZZER] Stopped");
 }
 
 void updateBuzzer() {
   if (!buzzerActive) return;
   
-  unsigned long now = millis();
-  unsigned long elapsed = now - buzzerStartTime;
+  unsigned long elapsed = millis() - noteStartTime;
   
-  // Calculate total melody duration
-  int totalMelodyDuration = 0;
-  for (int i = 0; i < melodyLength; i++) {
-    totalMelodyDuration += noteDurations[i] + 50;  // Note + gap
-  }
-  
-  // Pattern: play melody, then 1.5s pause, repeat
-  unsigned long cycleTime = elapsed % (totalMelodyDuration + 1500);
-  
-  if (cycleTime < totalMelodyDuration) {
-    // Playing melody
-    int timeInMelody = cycleTime;
-    int noteIndex = 0;
-    int accumulatedTime = 0;
+  // Check if current note finished
+  if (elapsed >= noteDurations[currentNote]) {
+    noTone(buzzerPin);
+    delay(50);  // Short gap between notes
     
-    // Find which note should be playing
-    for (int i = 0; i < melodyLength; i++) {
-      if (timeInMelody < accumulatedTime + noteDurations[i]) {
-        noteIndex = i;
-        break;
-      }
-      accumulatedTime += noteDurations[i] + 50;
+    currentNote++;
+    if (currentNote >= 4) {
+      // Melody finished, pause then restart
+      delay(1500);
+      currentNote = 0;
     }
     
-    // Play the note if we're in the note duration (not in the gap)
-    int noteStartTime = 0;
-    for (int i = 0; i < noteIndex; i++) {
-      noteStartTime += noteDurations[i] + 50;
-    }
-    
-    if (timeInMelody - noteStartTime < noteDurations[noteIndex]) {
-      // Only call tone() if the note changed
-      if (lastPlayedNote != noteIndex) {
-        tone(buzzerPin, melodyNotes[noteIndex]);
-        lastPlayedNote = noteIndex;
-      }
-    } else {
-      // In the gap between notes
-      if (lastPlayedNote != -1) {
-        noTone(buzzerPin);
-        lastPlayedNote = -1;
-      }
-    }
-  } else {
-    // In the pause between melody repeats
-    if (lastPlayedNote != -1) {
-      noTone(buzzerPin);
-      lastPlayedNote = -1;
-    }
+    // Play next note
+    tone(buzzerPin, melodyNotes[currentNote]);
+    noteStartTime = millis();
   }
 }
 
