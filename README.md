@@ -76,8 +76,8 @@ Configure development parameters across two pages:
 - Fixer time (default: 5:00)
 
 **Page 2:**
-- Rinse time (default: 3:00)
-- Reverse time (default: 0:30)
+- Rinse time (default: 10:00)
+- Reverse time (default: 0:10)
 - Motor speed (default: 100%)
 
 Use +/- buttons to adjust values in 5-second increments. Settings are automatically saved to flash memory.
@@ -164,7 +164,7 @@ Modify initial settings in `loadSettings()`:
 settings.devTime = preferences.getInt("devTime", 420);      // 7:00
 settings.stopTime = preferences.getInt("stopTime", 60);     // 1:00
 settings.fixTime = preferences.getInt("fixTime", 300);      // 5:00
-settings.rinseTime = preferences.getInt("rinseTime", 180);  // 3:00
+settings.rinseTime = preferences.getInt("rinseTime", 600);  // 10:00
 ```
 
 ### Timer Adjustment Increment

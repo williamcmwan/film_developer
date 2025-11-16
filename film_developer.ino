@@ -114,8 +114,8 @@ void loadSettings() {
   settings.devTime = preferences.getInt("devTime", 420);      // 7:00
   settings.stopTime = preferences.getInt("stopTime", 60);     // 1:00
   settings.fixTime = preferences.getInt("fixTime", 300);      // 5:00
-  settings.rinseTime = preferences.getInt("rinseTime", 180);  // 3:00
-  settings.reverseTime = preferences.getInt("revTime", 30);   // 0:30
+  settings.rinseTime = preferences.getInt("rinseTime", 600);  // 10:00
+  settings.reverseTime = preferences.getInt("revTime", 10);   // 0:10
   settings.speed = preferences.getInt("speed", 100);
   preferences.end();
   
