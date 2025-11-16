@@ -8,7 +8,8 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 - **4-Stage Development Process**: Developer, Stop Bath, Fixer, and Rinse stages
 - **Countdown Timer**: Large 48pt font MM:SS format with adjustable time (5-second intervals)
 - **Stage Selection**: Click to switch between stages with visual feedback
-- **Motor Control**: Automatic motor start/stop synchronized with timer
+- **PWM Motor Control**: Variable speed control (10-200%) with automatic start/stop synchronized with timer
+- **Overtime Mode**: Timer counts up after 00:00, motor reduces to 10% speed, auto-advances to next stage on Stop
 - **Dynamic UI**: Buttons and controls adapt based on timer state
 - **Persistent Settings**: All timing and speed settings saved to flash memory
 - **Touch Interface**: CST816 capacitive touch controller with 320x240 display
@@ -20,8 +21,9 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 - ESP32 development board
 - ST7789 240x320 LCD display
 - CST816 touch controller
-- Motor driver circuit
-- DC motor
+- L298N motor driver module (or compatible H-bridge driver)
+- DC motor (6-12V recommended)
+- 3-pin buzzer (active or passive)
 
 ## Pin Configuration
 
@@ -37,9 +39,41 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 - SDA: GPIO 48
 - SCL: GPIO 47
 
-### Motor Control
-- Motor Pin 1: GPIO 12
-- Motor Pin 2: GPIO 13
+### Motor Control (L298N)
+- Motor ENA (PWM): GPIO 12 → L298N ENA pin (speed control)
+- Motor IN1: GPIO 13 → L298N IN1 pin (direction control)
+- Motor IN2: GPIO 14 → L298N IN2 pin (direction control)
+- PWM Frequency: 5 KHz
+- PWM Resolution: 8-bit (0-255)
+- Speed Range: 0-100% UI (maps to 100-200% actual motor speed)
+
+### Buzzer
+- Buzzer Pin: GPIO 21 → Buzzer signal pin
+- Type: 3-pin active buzzer or passive buzzer
+- Plays melody when timer reaches 00:00 (overtime mode)
+- Stops when user presses Stop button
+- Note: GPIO 21 is used to avoid boot-time noise issues
+
+### L298N Wiring
+```
+ESP32 GPIO 12 (PWM) → L298N ENA (speed control)
+ESP32 GPIO 13       → L298N IN1 (direction)
+ESP32 GPIO 14       → L298N IN2 (direction)
+ESP32 GND           → L298N GND
+L298N OUT1          → Motor +
+L298N OUT2          → Motor -
+L298N +12V          → External power supply (6-12V)
+L298N GND           → External power supply GND (common ground with ESP32)
+
+ESP32 GPIO 21       → Buzzer signal pin
+Buzzer VCC          → 3.3V or 5V (depending on buzzer)
+Buzzer GND          → GND
+```
+
+**Motor Direction:**
+- Forward: IN1=HIGH, IN2=LOW
+- Reverse: IN1=LOW, IN2=HIGH (not currently used)
+- Stop: IN1=LOW, IN2=LOW
 
 ## Installation
 
@@ -78,7 +112,9 @@ Configure development parameters across two pages:
 **Page 2:**
 - Rinse time (default: 10:00)
 - Reverse time (default: 0:10)
-- Motor speed (default: 100%)
+- Motor speed (default: 0%, range: 0-100%)
+  - 0% = 100% actual motor speed
+  - 100% = 200% actual motor speed
 
 Use +/- buttons to adjust values in 5-second increments. Settings are automatically saved to flash memory.
 
@@ -171,6 +207,18 @@ settings.rinseTime = preferences.getInt("rinseTime", 600);  // 10:00
 Change the increment value in `timerUpHandler()` and `timerDownHandler()`:
 ```cpp
 currentTime += 5;  // Change 5 to desired seconds
+```
+
+### Motor Speed Control
+Adjust PWM frequency and resolution:
+```cpp
+const int pwmFreq = 5000;      // 5 KHz
+const int pwmResolution = 8;   // 8-bit (0-255)
+```
+
+Change overtime motor speed:
+```cpp
+setMotorSpeed(10);  // 10% speed during overtime
 ```
 
 ### Button Colors

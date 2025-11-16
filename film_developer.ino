@@ -23,9 +23,17 @@
 #define TOUCH_SCL 47
 #define TOUCH_ROTATION 1
 
-// Motor control pins
-const int motorPin1 = 12;
-const int motorPin2 = 13;
+// Motor control pins (L298N)
+const int motorENA = 12;   // PWM pin for speed control (ENA)
+const int motorIN1 = 13;   // Direction control 1 (IN1)
+const int motorIN2 = 14;   // Direction control 2 (IN2)
+
+// Buzzer pin
+const int buzzerPin = 21;  // Buzzer signal pin (GPIO 21 is safe, no boot issues)
+
+// PWM configuration
+const int pwmFreq = 5000;      // 5 KHz
+const int pwmResolution = 8;   // 8-bit resolution (0-255)
 
 // Display and touch
 Arduino_DataBus *bus = new Arduino_ESP32SPI(
@@ -67,8 +75,13 @@ int stageTime[4];
 int currentTime = 0;
 bool timerRunning = false;
 bool isOvertime = false;
+bool motorDirection = true;  // true = forward, false = reverse
+int reverseCounter = 0;
 unsigned long lastSecond = 0;
 unsigned long lastBlink = 0;
+bool buzzerPlaying = false;
+int buzzerNoteIndex = 0;
+unsigned long lastBuzzerNote = 0;
 
 // Develop screen UI elements
 lv_obj_t *stageButtons[4];
@@ -99,15 +112,110 @@ void my_touchpad_read(lv_indev_drv_t *indev_driver, lv_indev_data_t *data) {
   }
 }
 
-// Motor control
+// Motor control with PWM (L298N)
 void stopMotor() {
-  digitalWrite(motorPin1, LOW);
-  digitalWrite(motorPin2, LOW);
+  ledcWrite(motorENA, 0);
+  digitalWrite(motorIN1, LOW);
+  digitalWrite(motorIN2, LOW);
+}
+
+void setMotorDirection(bool forward) {
+  if (forward) {
+    digitalWrite(motorIN1, HIGH);
+    digitalWrite(motorIN2, LOW);
+    Serial.println("[MOTOR] Direction: FORWARD");
+  } else {
+    digitalWrite(motorIN1, LOW);
+    digitalWrite(motorIN2, HIGH);
+    Serial.println("[MOTOR] Direction: REVERSE");
+  }
+  motorDirection = forward;
 }
 
 void startMotor() {
-  digitalWrite(motorPin1, HIGH);
-  digitalWrite(motorPin2, LOW);
+  // Map UI speed (0-100%) to actual speed (100-200%)
+  // UI 0% = 100% actual, UI 100% = 200% actual
+  int actualSpeed = map(settings.speed, 0, 100, 100, 200);
+  int pwmValue = map(actualSpeed, 0, 200, 0, 255);
+  ledcWrite(motorENA, pwmValue);
+  // Set initial direction to forward
+  setMotorDirection(true);
+  reverseCounter = 0;
+  Serial.print("[MOTOR] Speed set to ");
+  Serial.print(settings.speed);
+  Serial.print("% (UI) = ");
+  Serial.print(actualSpeed);
+  Serial.print("% (actual), PWM: ");
+  Serial.print(pwmValue);
+  Serial.println(")");
+}
+
+void setMotorSpeed(int speedPercent) {
+  // Map UI speed (0-100%) to actual speed (100-200%)
+  int actualSpeed = map(speedPercent, 0, 100, 100, 200);
+  int pwmValue = map(actualSpeed, 0, 200, 0, 255);
+  ledcWrite(motorENA, pwmValue);
+  Serial.print("[MOTOR] Speed adjusted to ");
+  Serial.print(speedPercent);
+  Serial.print("% (UI) = ");
+  Serial.print(actualSpeed);
+  Serial.print("% (actual), PWM: ");
+  Serial.print(pwmValue);
+  Serial.println(")");
+}
+
+void setMotorSpeedActual(int actualSpeedPercent) {
+  // Set motor speed using actual percentage (0-200%)
+  int pwmValue = map(actualSpeedPercent, 0, 200, 0, 255);
+  ledcWrite(motorENA, pwmValue);
+  Serial.print("[MOTOR] Speed set to ");
+  Serial.print(actualSpeedPercent);
+  Serial.print("% (actual), PWM: ");
+  Serial.print(pwmValue);
+  Serial.println(")");
+}
+
+void reverseMotor() {
+  setMotorDirection(!motorDirection);
+}
+
+// Buzzer control - Simple melody for overtime notification
+const int melodyNotes[] = {523, 587, 659, 784, 659, 587};  // C5, D5, E5, G5, E5, D5
+const int noteDurations[] = {200, 200, 200, 400, 200, 400};  // milliseconds
+const int melodyLength = 6;
+
+void startBuzzer() {
+  buzzerPlaying = true;
+  buzzerNoteIndex = 0;
+  lastBuzzerNote = millis();
+  tone(buzzerPin, melodyNotes[0], noteDurations[0]);
+  Serial.println("[BUZZER] Started playing melody");
+}
+
+void stopBuzzer() {
+  buzzerPlaying = false;
+  noTone(buzzerPin);
+  Serial.println("[BUZZER] Stopped");
+}
+
+void updateBuzzer() {
+  if (!buzzerPlaying) return;
+  
+  unsigned long now = millis();
+  // Check if current note duration has elapsed (with small gap between notes)
+  if (now - lastBuzzerNote >= noteDurations[buzzerNoteIndex] + 50) {
+    buzzerNoteIndex++;
+    
+    if (buzzerNoteIndex >= melodyLength) {
+      // Melody finished, restart after a pause
+      buzzerNoteIndex = 0;
+      lastBuzzerNote = now + 1000;  // 1 second pause before repeating
+    } else {
+      // Play next note
+      tone(buzzerPin, melodyNotes[buzzerNoteIndex], noteDurations[buzzerNoteIndex]);
+      lastBuzzerNote = now;
+    }
+  }
 }
 
 // Load settings from flash
@@ -118,7 +226,7 @@ void loadSettings() {
   settings.fixTime = preferences.getInt("fixTime", 300);      // 5:00
   settings.rinseTime = preferences.getInt("rinseTime", 600);  // 10:00
   settings.reverseTime = preferences.getInt("revTime", 10);   // 0:10
-  settings.speed = preferences.getInt("speed", 100);
+  settings.speed = preferences.getInt("speed", 0);  // 0% UI = 100% actual
   preferences.end();
   
   Serial.println("[SETTINGS] Loaded from flash");
@@ -442,8 +550,8 @@ void settingsValueHandler(lv_event_t *e) {
       break;
     case 5: // Speed
       settings.speed += change * 5;
-      if (settings.speed < 10) settings.speed = 10;
-      if (settings.speed > 200) settings.speed = 200;
+      if (settings.speed < 0) settings.speed = 0;
+      if (settings.speed > 100) settings.speed = 100;
       break;
   }
   
@@ -679,6 +787,7 @@ void timerDownHandler(lv_event_t *e) {
 void startButtonHandler(lv_event_t *e) {
   timerRunning = true;
   isOvertime = false;
+  stopBuzzer();  // Ensure buzzer is off when starting
   lastSecond = millis();
   startMotor();
   updateControlButtons();
@@ -690,6 +799,7 @@ void startButtonHandler(lv_event_t *e) {
 void stopButtonHandler(lv_event_t *e) {
   timerRunning = false;
   stopMotor();
+  stopBuzzer();  // Stop buzzer when user presses Stop
   
   // If in overtime, advance to next stage
   if (isOvertime) {
@@ -719,6 +829,7 @@ void resetButtonHandler(lv_event_t *e) {
   timerRunning = false;
   isOvertime = false;
   stopMotor();
+  stopBuzzer();  // Ensure buzzer is off when resetting
   
   // Reset current stage time to default from settings
   switch(currentStage) {
@@ -746,6 +857,7 @@ void resetButtonHandler(lv_event_t *e) {
 void developBackHandler(lv_event_t *e) {
   timerRunning = false;
   stopMotor();
+  stopBuzzer();  // Ensure buzzer is off when going back
   if (mainMenuScreen != NULL) {
     showScreen(mainMenuScreen);
   }
@@ -760,9 +872,18 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Film Developer Starting...");
 
-  // Motor pins
-  pinMode(motorPin1, OUTPUT);
-  pinMode(motorPin2, OUTPUT);
+  // Buzzer pin - initialize FIRST to prevent boot noise
+  pinMode(buzzerPin, OUTPUT);
+  digitalWrite(buzzerPin, LOW);
+  noTone(buzzerPin);
+  delay(100);  // Give it time to settle
+
+  // Configure PWM for motor control (ESP32 Arduino 3.x API)
+  ledcAttach(motorENA, pwmFreq, pwmResolution);
+  
+  // Motor direction pins
+  pinMode(motorIN1, OUTPUT);
+  pinMode(motorIN2, OUTPUT);
   stopMotor();
 
   // Initialize display
@@ -832,19 +953,34 @@ void loop() {
       if (!isOvertime) {
         // Normal countdown
         currentTime--;
+        reverseCounter++;
         updateTimerDisplay();
+        
+        // Check if it's time to reverse motor direction
+        if (reverseCounter >= settings.reverseTime) {
+          reverseMotor();
+          reverseCounter = 0;
+        }
         
         if (currentTime == 0) {
           // Enter overtime mode
           isOvertime = true;
           currentTime = 0;
+          setMotorSpeedActual(5);  // Reduce motor speed to 5% actual
+          startBuzzer();  // Start playing notification melody
           Serial.println("[DEVELOP] Timer reached 00:00, entering overtime mode");
-          // Note: Motor speed reduction to 10% would require PWM implementation
         }
       } else {
         // Overtime count up
         currentTime++;
+        reverseCounter++;
         updateTimerDisplay();
+        
+        // Continue reversing in overtime mode
+        if (reverseCounter >= settings.reverseTime) {
+          reverseMotor();
+          reverseCounter = 0;
+        }
       }
     }
     
@@ -863,6 +999,9 @@ void loop() {
       }
     }
   }
+  
+  // Update buzzer melody
+  updateBuzzer();
   
   delay(5);
 }
