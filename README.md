@@ -1,12 +1,13 @@
 # Film Developer Controller
 
-An ESP32-based film developer controller with touch interface for automated film development processes.
+An ESP32-based film developer controller with LVGL touch interface for automated film development processes.
 
 ## Features
 
+- **LVGL Graphics**: Modern UI framework with smooth rendering and animations
 - **Touch Interface**: CST816 capacitive touch controller with 320x240 display
-- **Visual Feedback**: Buttons flash white when pressed for clear user feedback
-- **Real-time Timer**: Large MM:SS format timer displays elapsed time during operation
+- **Visual Feedback**: Professional button styling with press states
+- **Real-time Timer**: Large 48pt font MM:SS format timer displays elapsed time
 - **Motor Control**: Automated clockwise and counter-clockwise rotation sequences
 - **Responsive Stop**: Stop button responds within 50ms during operation
 - **Serial Logging**: Comprehensive logging for debugging and monitoring
@@ -41,13 +42,19 @@ An ESP32-based film developer controller with touch interface for automated film
 
 1. Install the Arduino IDE or PlatformIO
 2. Install required libraries:
-   - Arduino_GFX_Library
-   - Wire (built-in)
-   - bsp_cst816 (custom touch library)
-3. Clone this repository
-4. Open `film_developer.ino` in Arduino IDE
-5. Select your ESP32 board
-6. Upload to your device
+   - **lvgl** (v8.3.0 or later) - Install via Library Manager
+   - **Arduino_GFX_Library** - Install via Library Manager
+   - **Wire** (built-in)
+   - **bsp_cst816** (custom touch library)
+3. Configure LVGL:
+   - Copy `lv_conf_template.h` from the lvgl library folder to your Arduino libraries folder
+   - Rename it to `lv_conf.h`
+   - Set `#define LV_CONF_SKIP 0` to `1` at the top
+   - Adjust memory settings if needed (default should work)
+4. Clone this repository
+5. Open `film_developer.ino` in Arduino IDE
+6. Select your ESP32 board
+7. Upload to your device
 
 ## Usage
 
@@ -90,14 +97,20 @@ for (int i = 0; i < 100; i++) {  // 100 * 100ms = 10 seconds
 ```
 
 ### Change Button Colors
-Edit the button definitions:
+Edit the LVGL button styles in `create_ui()`:
 ```cpp
-Button startButton = { 10, 180, 140, 50, "START", color565(0, 255, 0) };
-Button stopButton = { 170, 180, 140, 50, "STOP", color565(255, 0, 0) };
+lv_obj_set_style_bg_color(startBtn, lv_color_make(0, 200, 0), 0);  // Green
+lv_obj_set_style_bg_color(stopBtn, lv_color_make(200, 0, 0), 0);   // Red
 ```
 
 ### Modify Display Rotation
 Change `LCD_ROTATION` value (0-3) for different orientations.
+
+### Customize Timer Font
+Change the timer font size in `create_ui()`:
+```cpp
+lv_obj_set_style_text_font(timerLabel, &lv_font_montserrat_48, 0);
+```
 
 ## License
 
