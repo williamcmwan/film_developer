@@ -66,7 +66,9 @@ Stage currentStage = DEV;
 int stageTime[4];
 int currentTime = 0;
 bool timerRunning = false;
+bool isOvertime = false;
 unsigned long lastSecond = 0;
+unsigned long lastBlink = 0;
 
 // Develop screen UI elements
 lv_obj_t *stageButtons[4];
@@ -234,6 +236,7 @@ void mainMenuStartHandler(lv_event_t *e) {
     currentStage = DEV;
     currentTime = stageTime[DEV];
     timerRunning = false;
+    isOvertime = false;
     
     showScreen(developScreen);
     updateTimerDisplay();
@@ -477,8 +480,19 @@ void developBackHandler(lv_event_t *e);
 
 void updateTimerDisplay() {
   char buf[16];
-  sprintf(buf, "%02d:%02d", currentTime / 60, currentTime % 60);
+  if (isOvertime) {
+    sprintf(buf, "+%02d:%02d", currentTime / 60, currentTime % 60);
+  } else {
+    sprintf(buf, "%02d:%02d", currentTime / 60, currentTime % 60);
+  }
   lv_label_set_text(timerLabel, buf);
+  
+  // Set color based on overtime state
+  if (isOvertime) {
+    // Blinking will be handled in loop
+  } else {
+    lv_obj_set_style_text_color(timerLabel, lv_color_white(), 0);
+  }
 }
 
 void updateStageButtons() {
@@ -664,16 +678,38 @@ void timerDownHandler(lv_event_t *e) {
 
 void startButtonHandler(lv_event_t *e) {
   timerRunning = true;
+  isOvertime = false;
   lastSecond = millis();
   startMotor();
   updateControlButtons();
   updateStageButtons();
+  updateTimerDisplay();
   Serial.println("[DEVELOP] Timer started, motor ON");
 }
 
 void stopButtonHandler(lv_event_t *e) {
   timerRunning = false;
   stopMotor();
+  
+  // If in overtime, advance to next stage
+  if (isOvertime) {
+    isOvertime = false;
+    
+    // Advance to next stage
+    if (currentStage < RINSE) {
+      currentStage = (Stage)(currentStage + 1);
+      currentTime = stageTime[currentStage];
+      Serial.print("[DEVELOP] Advanced to next stage: ");
+      Serial.println(currentStage);
+    } else {
+      // Already at last stage, just reset
+      currentTime = stageTime[currentStage];
+      Serial.println("[DEVELOP] At final stage, reset timer");
+    }
+    
+    updateTimerDisplay();
+  }
+  
   updateControlButtons();
   updateStageButtons();
   Serial.println("[DEVELOP] Timer stopped, motor OFF");
@@ -681,6 +717,7 @@ void stopButtonHandler(lv_event_t *e) {
 
 void resetButtonHandler(lv_event_t *e) {
   timerRunning = false;
+  isOvertime = false;
   stopMotor();
   
   // Reset current stage time to default from settings
@@ -785,19 +822,44 @@ void loop() {
   lv_timer_handler();
   
   // Handle countdown timer
-  if (timerRunning && currentTime > 0) {
+  if (timerRunning) {
     unsigned long now = millis();
+    
+    // Update timer every second
     if (now - lastSecond >= 1000) {
       lastSecond = now;
-      currentTime--;
-      updateTimerDisplay();
       
-      if (currentTime == 0) {
-        timerRunning = false;
-        stopMotor();
-        updateControlButtons();
-        updateStageButtons();
-        Serial.println("[DEVELOP] Timer finished!");
+      if (!isOvertime) {
+        // Normal countdown
+        currentTime--;
+        updateTimerDisplay();
+        
+        if (currentTime == 0) {
+          // Enter overtime mode
+          isOvertime = true;
+          currentTime = 0;
+          Serial.println("[DEVELOP] Timer reached 00:00, entering overtime mode");
+          // Note: Motor speed reduction to 10% would require PWM implementation
+        }
+      } else {
+        // Overtime count up
+        currentTime++;
+        updateTimerDisplay();
+      }
+    }
+    
+    // Handle blinking in overtime mode
+    if (isOvertime) {
+      if (now - lastBlink >= 500) {
+        lastBlink = now;
+        // Toggle between red and white
+        static bool isRed = false;
+        if (isRed) {
+          lv_obj_set_style_text_color(timerLabel, lv_color_make(255, 0, 0), 0);
+        } else {
+          lv_obj_set_style_text_color(timerLabel, lv_color_white(), 0);
+        }
+        isRed = !isRed;
       }
     }
   }
