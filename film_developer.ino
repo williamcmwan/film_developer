@@ -68,6 +68,13 @@ int currentTime = 0;
 bool timerRunning = false;
 unsigned long lastSecond = 0;
 
+// Develop screen UI elements
+lv_obj_t *stageButtons[4];
+lv_obj_t *timerLabel;
+lv_obj_t *startBtn, *stopBtn, *resetBtn;
+lv_obj_t *upBtn, *downBtn;
+lv_obj_t *backBtn;
+
 // Display flush callback
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
   uint32_t w = (area->x2 - area->x1 + 1);
@@ -229,6 +236,9 @@ void mainMenuStartHandler(lv_event_t *e) {
     timerRunning = false;
     
     showScreen(developScreen);
+    updateTimerDisplay();
+    updateStageButtons();
+    updateControlButtons();
   }
 }
 
@@ -456,15 +466,252 @@ void settingsPrevHandler(lv_event_t *e) {
   }
 }
 
-// Develop screen (simplified - will expand)
+// Develop screen handlers
+void stageButtonHandler(lv_event_t *e);
+void timerUpHandler(lv_event_t *e);
+void timerDownHandler(lv_event_t *e);
+void startButtonHandler(lv_event_t *e);
+void stopButtonHandler(lv_event_t *e);
+void resetButtonHandler(lv_event_t *e);
+void developBackHandler(lv_event_t *e);
+
+void updateTimerDisplay() {
+  char buf[16];
+  sprintf(buf, "%02d:%02d", currentTime / 60, currentTime % 60);
+  lv_label_set_text(timerLabel, buf);
+}
+
+void updateStageButtons() {
+  const char* stageNames[] = {"Dev", "Stop", "Fix", "Rinse"};
+  
+  for (int i = 0; i < 4; i++) {
+    if (i == currentStage) {
+      lv_obj_set_style_bg_color(stageButtons[i], lv_color_make(0, 150, 0), 0);
+    } else {
+      lv_obj_set_style_bg_color(stageButtons[i], lv_color_make(60, 60, 60), 0);
+    }
+    
+    // Disable stage buttons when timer is running
+    if (timerRunning) {
+      lv_obj_add_state(stageButtons[i], LV_STATE_DISABLED);
+    } else {
+      lv_obj_clear_state(stageButtons[i], LV_STATE_DISABLED);
+    }
+  }
+}
+
+void updateControlButtons() {
+  if (timerRunning) {
+    // When running: show only Stop button (full width), hide everything else
+    lv_obj_add_flag(startBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(resetBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(upBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(downBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(backBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(stopBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_size(stopBtn, 300, 50);
+    lv_obj_set_pos(stopBtn, 10, 180);
+  } else {
+    // When stopped: show Back, Start and Reset buttons, show up/down buttons
+    lv_obj_clear_flag(startBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(resetBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(upBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(downBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(backBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(stopBtn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_size(startBtn, 115, 50);
+    lv_obj_set_pos(startBtn, 80, 180);
+    lv_obj_set_size(resetBtn, 115, 50);
+    lv_obj_set_pos(resetBtn, 205, 180);
+  }
+}
+
 void createDevelopScreen() {
   developScreen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(developScreen, lv_color_black(), 0);
   
-  lv_obj_t *label = lv_label_create(developScreen);
-  lv_label_set_text(label, "Develop screen\ncoming soon...");
-  lv_obj_set_style_text_color(label, lv_color_white(), 0);
-  lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
+  // Stage buttons (top row)
+  const char* stageNames[] = {"Dev", "Stop", "Fix", "Rinse"};
+  int btnWidth = 75;
+  int btnSpacing = 5;
+  int startX = (SCREEN_WIDTH - (btnWidth * 4 + btnSpacing * 3)) / 2;
+  
+  for (int i = 0; i < 4; i++) {
+    stageButtons[i] = lv_btn_create(developScreen);
+    lv_obj_set_size(stageButtons[i], btnWidth, 45);
+    lv_obj_set_pos(stageButtons[i], startX + i * (btnWidth + btnSpacing), 10);
+    lv_obj_add_event_cb(stageButtons[i], stageButtonHandler, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+    
+    lv_obj_t *label = lv_label_create(stageButtons[i]);
+    lv_label_set_text(label, stageNames[i]);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_obj_center(label);
+  }
+  
+  // Timer display with up/down buttons (centered vertically)
+  // Down button (left side)
+  downBtn = lv_btn_create(developScreen);
+  lv_obj_set_size(downBtn, 50, 50);
+  lv_obj_set_pos(downBtn, 40, 95);
+  lv_obj_set_style_bg_color(downBtn, lv_color_make(80, 80, 80), 0);
+  lv_obj_add_event_cb(downBtn, timerDownHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *downLabel = lv_label_create(downBtn);
+  lv_label_set_text(downLabel, LV_SYMBOL_DOWN);
+  lv_obj_set_style_text_font(downLabel, &lv_font_montserrat_28, 0);
+  lv_obj_center(downLabel);
+  
+  // Timer label (larger font)
+  timerLabel = lv_label_create(developScreen);
+  lv_label_set_text(timerLabel, "00:00");
+  lv_obj_set_style_text_color(timerLabel, lv_color_white(), 0);
+  lv_obj_set_style_text_font(timerLabel, &lv_font_montserrat_48, 0);
+  lv_obj_align(timerLabel, LV_ALIGN_CENTER, 0, 0);
+  
+  // Up button (right side)
+  upBtn = lv_btn_create(developScreen);
+  lv_obj_set_size(upBtn, 50, 50);
+  lv_obj_set_pos(upBtn, 230, 95);
+  lv_obj_set_style_bg_color(upBtn, lv_color_make(80, 80, 80), 0);
+  lv_obj_add_event_cb(upBtn, timerUpHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *upLabel = lv_label_create(upBtn);
+  lv_label_set_text(upLabel, LV_SYMBOL_UP);
+  lv_obj_set_style_text_font(upLabel, &lv_font_montserrat_28, 0);
+  lv_obj_center(upLabel);
+  
+  // Control buttons (bottom row)
+  // Back button (bottom left)
+  backBtn = lv_btn_create(developScreen);
+  lv_obj_set_size(backBtn, 60, 50);
+  lv_obj_set_pos(backBtn, 10, 180);
+  lv_obj_set_style_bg_color(backBtn, lv_color_make(60, 60, 60), 0);
+  lv_obj_add_event_cb(backBtn, developBackHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *backLabel = lv_label_create(backBtn);
+  lv_label_set_text(backLabel, LV_SYMBOL_LEFT);
+  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_20, 0);
+  lv_obj_center(backLabel);
+  
+  // Start button
+  startBtn = lv_btn_create(developScreen);
+  lv_obj_set_size(startBtn, 75, 50);
+  lv_obj_set_pos(startBtn, 80, 180);
+  lv_obj_set_style_bg_color(startBtn, lv_color_make(0, 150, 0), 0);
+  lv_obj_add_event_cb(startBtn, startButtonHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *startLabel = lv_label_create(startBtn);
+  lv_label_set_text(startLabel, "Start");
+  lv_obj_set_style_text_font(startLabel, &lv_font_montserrat_18, 0);
+  lv_obj_center(startLabel);
+  
+  // Stop button
+  stopBtn = lv_btn_create(developScreen);
+  lv_obj_set_size(stopBtn, 75, 50);
+  lv_obj_set_pos(stopBtn, 165, 180);
+  lv_obj_set_style_bg_color(stopBtn, lv_color_make(200, 100, 0), 0);
+  lv_obj_add_event_cb(stopBtn, stopButtonHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *stopLabel = lv_label_create(stopBtn);
+  lv_label_set_text(stopLabel, "Stop");
+  lv_obj_set_style_text_font(stopLabel, &lv_font_montserrat_18, 0);
+  lv_obj_center(stopLabel);
+  
+  // Reset button
+  resetBtn = lv_btn_create(developScreen);
+  lv_obj_set_size(resetBtn, 60, 50);
+  lv_obj_set_pos(resetBtn, 250, 180);
+  lv_obj_set_style_bg_color(resetBtn, lv_color_make(150, 0, 0), 0);
+  lv_obj_add_event_cb(resetBtn, resetButtonHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *resetLabel = lv_label_create(resetBtn);
+  lv_label_set_text(resetLabel, "Reset");
+  lv_obj_set_style_text_font(resetLabel, &lv_font_montserrat_18, 0);
+  lv_obj_center(resetLabel);
+  
+  updateStageButtons();
+  updateTimerDisplay();
+  updateControlButtons();
+}
+
+void stageButtonHandler(lv_event_t *e) {
+  int stage = (int)(intptr_t)lv_event_get_user_data(e);
+  currentStage = (Stage)stage;
+  currentTime = stageTime[currentStage];
+  updateStageButtons();
+  updateTimerDisplay();
+  Serial.print("[DEVELOP] Stage changed to: ");
+  Serial.println(stage);
+}
+
+void timerUpHandler(lv_event_t *e) {
+  if (!timerRunning) {
+    currentTime += 5;
+    if (currentTime > 3600) currentTime = 3600;
+    stageTime[currentStage] = currentTime;
+    updateTimerDisplay();
+  }
+}
+
+void timerDownHandler(lv_event_t *e) {
+  if (!timerRunning) {
+    currentTime -= 5;
+    if (currentTime < 0) currentTime = 0;
+    stageTime[currentStage] = currentTime;
+    updateTimerDisplay();
+  }
+}
+
+void startButtonHandler(lv_event_t *e) {
+  timerRunning = true;
+  lastSecond = millis();
+  startMotor();
+  updateControlButtons();
+  updateStageButtons();
+  Serial.println("[DEVELOP] Timer started, motor ON");
+}
+
+void stopButtonHandler(lv_event_t *e) {
+  timerRunning = false;
+  stopMotor();
+  updateControlButtons();
+  updateStageButtons();
+  Serial.println("[DEVELOP] Timer stopped, motor OFF");
+}
+
+void resetButtonHandler(lv_event_t *e) {
+  timerRunning = false;
+  stopMotor();
+  
+  // Reset current stage time to default from settings
+  switch(currentStage) {
+    case DEV:
+      stageTime[DEV] = settings.devTime;
+      break;
+    case STOP_BATH:
+      stageTime[STOP_BATH] = settings.stopTime;
+      break;
+    case FIX:
+      stageTime[FIX] = settings.fixTime;
+      break;
+    case RINSE:
+      stageTime[RINSE] = settings.rinseTime;
+      break;
+  }
+  
+  currentTime = stageTime[currentStage];
+  updateTimerDisplay();
+  updateControlButtons();
+  updateStageButtons();
+  Serial.println("[DEVELOP] Timer reset to default");
+}
+
+void developBackHandler(lv_event_t *e) {
+  timerRunning = false;
+  stopMotor();
+  if (mainMenuScreen != NULL) {
+    showScreen(mainMenuScreen);
+  }
 }
 
 // Show screen
@@ -536,5 +783,24 @@ void setup() {
 
 void loop() {
   lv_timer_handler();
+  
+  // Handle countdown timer
+  if (timerRunning && currentTime > 0) {
+    unsigned long now = millis();
+    if (now - lastSecond >= 1000) {
+      lastSecond = now;
+      currentTime--;
+      updateTimerDisplay();
+      
+      if (currentTime == 0) {
+        timerRunning = false;
+        stopMotor();
+        updateControlButtons();
+        updateStageButtons();
+        Serial.println("[DEVELOP] Timer finished!");
+      }
+    }
+  }
+  
   delay(5);
 }
