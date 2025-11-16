@@ -60,12 +60,13 @@ lv_obj_t *developScreen;
 
 // Settings structure
 struct Settings {
-  int devTime;      // seconds
-  int stopTime;     // seconds
-  int fixTime;      // seconds
-  int rinseTime;    // seconds
-  int reverseTime;  // seconds
-  int speed;        // percentage
+  int devTime;        // seconds
+  int stopTime;       // seconds
+  int fixTime;        // seconds
+  int rinseTime;      // seconds
+  int reverseTime;    // seconds
+  int speed;          // percentage
+  int overtimeSpeed;  // percentage (1-100%)
 } settings;
 
 // Development state
@@ -181,13 +182,19 @@ void reverseMotor() {
 // Buzzer - melody for overtime notification
 const int melodyNotes[] = {523, 659, 784, 1047};  // C5, E5, G5, C6
 const int noteDurations[] = {200, 200, 200, 400};
+const int noteGap = 50;        // Gap between notes in ms
+const int melodyPause = 1500;  // Pause before repeating melody
 int currentNote = 0;
 unsigned long noteStartTime = 0;
+bool inNoteGap = false;
+bool inMelodyPause = false;
 
 void startBuzzer() {
   buzzerActive = true;
   currentNote = 0;
   noteStartTime = millis();
+  inNoteGap = false;
+  inMelodyPause = false;
   tone(buzzerPin, melodyNotes[0]);
 }
 
@@ -202,20 +209,43 @@ void updateBuzzer() {
   
   unsigned long elapsed = millis() - noteStartTime;
   
+  // Handle melody pause (between melody repetitions)
+  if (inMelodyPause) {
+    if (elapsed >= melodyPause) {
+      // Restart melody
+      currentNote = 0;
+      inMelodyPause = false;
+      noteStartTime = millis();
+      tone(buzzerPin, melodyNotes[0]);
+    }
+    return;
+  }
+  
+  // Handle gap between notes
+  if (inNoteGap) {
+    if (elapsed >= noteGap) {
+      inNoteGap = false;
+      currentNote++;
+      
+      // Check if melody finished
+      if (currentNote >= 4) {
+        // Enter melody pause
+        inMelodyPause = true;
+        noteStartTime = millis();
+        return;
+      }
+      
+      // Play next note
+      noteStartTime = millis();
+      tone(buzzerPin, melodyNotes[currentNote]);
+    }
+    return;
+  }
+  
   // Check if current note finished
   if (elapsed >= noteDurations[currentNote]) {
     noTone(buzzerPin);
-    delay(50);  // Short gap between notes
-    
-    currentNote++;
-    if (currentNote >= 4) {
-      // Melody finished, pause then restart
-      delay(1500);
-      currentNote = 0;
-    }
-    
-    // Play next note
-    tone(buzzerPin, melodyNotes[currentNote]);
+    inNoteGap = true;
     noteStartTime = millis();
   }
 }
@@ -229,6 +259,7 @@ void loadSettings() {
   settings.rinseTime = preferences.getInt("rinseTime", 600);  // 10:00
   settings.reverseTime = preferences.getInt("revTime", 10);   // 0:10
   settings.speed = preferences.getInt("speed", 0);  // 0% UI = 100% actual
+  settings.overtimeSpeed = preferences.getInt("overtimeSpeed", 5);  // 5% default
   preferences.end();
   
   Serial.println("[SETTINGS] Loaded from flash");
@@ -243,6 +274,7 @@ void saveSettings() {
   preferences.putInt("rinseTime", settings.rinseTime);
   preferences.putInt("revTime", settings.reverseTime);
   preferences.putInt("speed", settings.speed);
+  preferences.putInt("overtimeSpeed", settings.overtimeSpeed);
   preferences.end();
   
   Serial.println("[SETTINGS] Saved to flash");
@@ -364,6 +396,7 @@ void mainMenuSettingsHandler(lv_event_t *e) {
 
 // Settings screen labels
 lv_obj_t *devTimeLabel, *stopTimeLabel, *fixTimeLabel, *rinseTimeLabel, *revTimeLabel, *speedLabel;
+lv_obj_t *overtimeSpeedLabel;
 
 void settingsBackHandler(lv_event_t *e);
 void settingsNextHandler(lv_event_t *e);
@@ -402,6 +435,11 @@ void updateSettingsLabels() {
   if (speedLabel != NULL) {
     sprintf(buf, "%d%%", settings.speed);
     lv_label_set_text(speedLabel, buf);
+  }
+  
+  if (overtimeSpeedLabel != NULL) {
+    sprintf(buf, "%d%%", settings.overtimeSpeed);
+    lv_label_set_text(overtimeSpeedLabel, buf);
   }
 }
 
@@ -487,7 +525,7 @@ void createSettingsScreen1() {
   updateSettingsLabels();
 }
 
-// Settings Screen 2 (Rinse, Reverse, Speed)
+// Settings Screen 2 (Rinse, Reverse, Speed, Overtime Speed)
 void createSettingsScreen2() {
   settingsScreen2 = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(settingsScreen2, lv_color_black(), 0);
@@ -512,8 +550,9 @@ void createSettingsScreen2() {
   
   // Settings rows
   createSettingRow(settingsScreen2, "Rinse", &rinseTimeLabel, 70, 3);
-  createSettingRow(settingsScreen2, "Reverse", &revTimeLabel, 130, 4);
-  createSettingRow(settingsScreen2, "Speed", &speedLabel, 190, 5);
+  createSettingRow(settingsScreen2, "Reverse", &revTimeLabel, 115, 4);
+  createSettingRow(settingsScreen2, "Speed", &speedLabel, 160, 5);
+  createSettingRow(settingsScreen2, "OT Speed", &overtimeSpeedLabel, 205, 6);
   
   updateSettingsLabels();
 }
@@ -554,6 +593,11 @@ void settingsValueHandler(lv_event_t *e) {
       settings.speed += change * 5;
       if (settings.speed < 0) settings.speed = 0;
       if (settings.speed > 100) settings.speed = 100;
+      break;
+    case 6: // Overtime Speed
+      settings.overtimeSpeed += change * 1;
+      if (settings.overtimeSpeed < 1) settings.overtimeSpeed = 1;
+      if (settings.overtimeSpeed > 100) settings.overtimeSpeed = 100;
       break;
   }
   
@@ -965,9 +1009,15 @@ void loop() {
           // Enter overtime mode
           isOvertime = true;
           currentTime = 0;
-          setMotorSpeedActual(5);  // Reduce motor speed to 5% actual
+          // Map OT Speed UI (1-100%) to actual speed (100-200%) same as normal speed
+          int actualOvertimeSpeed = map(settings.overtimeSpeed, 0, 100, 100, 200);
+          setMotorSpeedActual(actualOvertimeSpeed);
           startBuzzer();
-          Serial.println("[DEVELOP] Timer reached 00:00, entering overtime mode");
+          Serial.print("[DEVELOP] Timer reached 00:00, entering overtime mode at ");
+          Serial.print(settings.overtimeSpeed);
+          Serial.print("% (UI) = ");
+          Serial.print(actualOvertimeSpeed);
+          Serial.println("% (actual)");
         }
       } else {
         // Overtime count up
