@@ -29,9 +29,9 @@ const int motorIN1 = 13;   // Direction control 1 (IN1)
 const int motorIN2 = 14;   // Direction control 2 (IN2)
 
 // Buzzer pin
-const int buzzerPin = 21;  // Buzzer signal pin (GPIO 21 is safe, no boot issues)
+const int buzzerPin = 11;  // Buzzer signal pin (GPIO 11)
 
-// PWM configuration
+// PWM configuration for motor
 const int pwmFreq = 5000;      // 5 KHz
 const int pwmResolution = 8;   // 8-bit resolution (0-255)
 
@@ -79,9 +79,8 @@ bool motorDirection = true;  // true = forward, false = reverse
 int reverseCounter = 0;
 unsigned long lastSecond = 0;
 unsigned long lastBlink = 0;
-bool buzzerPlaying = false;
-int buzzerNoteIndex = 0;
-unsigned long lastBuzzerNote = 0;
+bool buzzerActive = false;
+unsigned long buzzerStartTime = 0;
 
 // Develop screen UI elements
 lv_obj_t *stageButtons[4];
@@ -179,41 +178,87 @@ void reverseMotor() {
   setMotorDirection(!motorDirection);
 }
 
-// Buzzer control - Simple melody for overtime notification
-const int melodyNotes[] = {523, 587, 659, 784, 659, 587};  // C5, D5, E5, G5, E5, D5
-const int noteDurations[] = {200, 200, 200, 400, 200, 400};  // milliseconds
-const int melodyLength = 6;
+// Buzzer control - melody for overtime notification
+// Simple melody: C5-E5-G5-C6 (ascending notes)
+const int melodyNotes[] = {523, 659, 784, 1047};  // C5, E5, G5, C6
+const int noteDurations[] = {200, 200, 200, 400};  // milliseconds
+const int melodyLength = 4;
+int currentNote = 0;
+unsigned long lastNoteTime = 0;
+int lastPlayedNote = -1;  // Track which note is currently playing
 
 void startBuzzer() {
-  buzzerPlaying = true;
-  buzzerNoteIndex = 0;
-  lastBuzzerNote = millis();
-  tone(buzzerPin, melodyNotes[0], noteDurations[0]);
-  Serial.println("[BUZZER] Started playing melody");
+  buzzerActive = true;
+  buzzerStartTime = millis();
+  currentNote = 0;
+  lastNoteTime = millis();
+  lastPlayedNote = -1;
+  Serial.println("[BUZZER] Started - playing melody");
 }
 
 void stopBuzzer() {
-  buzzerPlaying = false;
+  buzzerActive = false;
   noTone(buzzerPin);
+  digitalWrite(buzzerPin, LOW);
+  currentNote = 0;
+  lastPlayedNote = -1;
   Serial.println("[BUZZER] Stopped");
 }
 
 void updateBuzzer() {
-  if (!buzzerPlaying) return;
+  if (!buzzerActive) return;
   
   unsigned long now = millis();
-  // Check if current note duration has elapsed (with small gap between notes)
-  if (now - lastBuzzerNote >= noteDurations[buzzerNoteIndex] + 50) {
-    buzzerNoteIndex++;
+  unsigned long elapsed = now - buzzerStartTime;
+  
+  // Calculate total melody duration
+  int totalMelodyDuration = 0;
+  for (int i = 0; i < melodyLength; i++) {
+    totalMelodyDuration += noteDurations[i] + 50;  // Note + gap
+  }
+  
+  // Pattern: play melody, then 1.5s pause, repeat
+  unsigned long cycleTime = elapsed % (totalMelodyDuration + 1500);
+  
+  if (cycleTime < totalMelodyDuration) {
+    // Playing melody
+    int timeInMelody = cycleTime;
+    int noteIndex = 0;
+    int accumulatedTime = 0;
     
-    if (buzzerNoteIndex >= melodyLength) {
-      // Melody finished, restart after a pause
-      buzzerNoteIndex = 0;
-      lastBuzzerNote = now + 1000;  // 1 second pause before repeating
+    // Find which note should be playing
+    for (int i = 0; i < melodyLength; i++) {
+      if (timeInMelody < accumulatedTime + noteDurations[i]) {
+        noteIndex = i;
+        break;
+      }
+      accumulatedTime += noteDurations[i] + 50;
+    }
+    
+    // Play the note if we're in the note duration (not in the gap)
+    int noteStartTime = 0;
+    for (int i = 0; i < noteIndex; i++) {
+      noteStartTime += noteDurations[i] + 50;
+    }
+    
+    if (timeInMelody - noteStartTime < noteDurations[noteIndex]) {
+      // Only call tone() if the note changed
+      if (lastPlayedNote != noteIndex) {
+        tone(buzzerPin, melodyNotes[noteIndex]);
+        lastPlayedNote = noteIndex;
+      }
     } else {
-      // Play next note
-      tone(buzzerPin, melodyNotes[buzzerNoteIndex], noteDurations[buzzerNoteIndex]);
-      lastBuzzerNote = now;
+      // In the gap between notes
+      if (lastPlayedNote != -1) {
+        noTone(buzzerPin);
+        lastPlayedNote = -1;
+      }
+    }
+  } else {
+    // In the pause between melody repeats
+    if (lastPlayedNote != -1) {
+      noTone(buzzerPin);
+      lastPlayedNote = -1;
     }
   }
 }
@@ -787,7 +832,6 @@ void timerDownHandler(lv_event_t *e) {
 void startButtonHandler(lv_event_t *e) {
   timerRunning = true;
   isOvertime = false;
-  stopBuzzer();  // Ensure buzzer is off when starting
   lastSecond = millis();
   startMotor();
   updateControlButtons();
@@ -799,7 +843,7 @@ void startButtonHandler(lv_event_t *e) {
 void stopButtonHandler(lv_event_t *e) {
   timerRunning = false;
   stopMotor();
-  stopBuzzer();  // Stop buzzer when user presses Stop
+  stopBuzzer();
   
   // If in overtime, advance to next stage
   if (isOvertime) {
@@ -829,7 +873,6 @@ void resetButtonHandler(lv_event_t *e) {
   timerRunning = false;
   isOvertime = false;
   stopMotor();
-  stopBuzzer();  // Ensure buzzer is off when resetting
   
   // Reset current stage time to default from settings
   switch(currentStage) {
@@ -857,7 +900,6 @@ void resetButtonHandler(lv_event_t *e) {
 void developBackHandler(lv_event_t *e) {
   timerRunning = false;
   stopMotor();
-  stopBuzzer();  // Ensure buzzer is off when going back
   if (mainMenuScreen != NULL) {
     showScreen(mainMenuScreen);
   }
@@ -870,13 +912,13 @@ void showScreen(lv_obj_t *screen) {
 
 void setup() {
   Serial.begin(115200);
+  delay(100);  // Let serial stabilize
   Serial.println("Film Developer Starting...");
 
-  // Buzzer pin - initialize FIRST to prevent boot noise
+  // Buzzer - initialize as output and ensure it's silent
   pinMode(buzzerPin, OUTPUT);
   digitalWrite(buzzerPin, LOW);
   noTone(buzzerPin);
-  delay(100);  // Give it time to settle
 
   // Configure PWM for motor control (ESP32 Arduino 3.x API)
   ledcAttach(motorENA, pwmFreq, pwmResolution);
@@ -967,7 +1009,7 @@ void loop() {
           isOvertime = true;
           currentTime = 0;
           setMotorSpeedActual(5);  // Reduce motor speed to 5% actual
-          startBuzzer();  // Start playing notification melody
+          startBuzzer();
           Serial.println("[DEVELOP] Timer reached 00:00, entering overtime mode");
         }
       } else {
@@ -1000,7 +1042,7 @@ void loop() {
     }
   }
   
-  // Update buzzer melody
+  // Update buzzer
   updateBuzzer();
   
   delay(5);

@@ -8,8 +8,8 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 - **4-Stage Development Process**: Developer, Stop Bath, Fixer, and Rinse stages
 - **Countdown Timer**: Large 48pt font MM:SS format with adjustable time (5-second intervals)
 - **Stage Selection**: Click to switch between stages with visual feedback
-- **PWM Motor Control**: Variable speed control (10-200%) with automatic start/stop synchronized with timer
-- **Overtime Mode**: Timer counts up after 00:00, motor reduces to 10% speed, auto-advances to next stage on Stop
+- **PWM Motor Control**: Variable speed control (100-200% actual) with automatic start/stop synchronized with timer
+- **Overtime Mode**: Timer counts up after 00:00, motor reduces to 5% speed, blinking red display, buzzer alert, auto-advances to next stage on Stop
 - **Dynamic UI**: Buttons and controls adapt based on timer state
 - **Persistent Settings**: All timing and speed settings saved to flash memory
 - **Touch Interface**: CST816 capacitive touch controller with 320x240 display
@@ -23,7 +23,7 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 - CST816 touch controller
 - L298N motor driver module (or compatible H-bridge driver)
 - DC motor (6-12V recommended)
-- 3-pin buzzer (active or passive)
+- Passive buzzer (3-pin)
 
 ## Pin Configuration
 
@@ -48,11 +48,10 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 - Speed Range: 0-100% UI (maps to 100-200% actual motor speed)
 
 ### Buzzer
-- Buzzer Pin: GPIO 21 → Buzzer signal pin
-- Type: 3-pin active buzzer or passive buzzer
-- Plays melody when timer reaches 00:00 (overtime mode)
+- Buzzer Pin: GPIO 11 → Buzzer signal pin
+- Type: Passive buzzer (3-pin)
+- Plays double-beep pattern when timer reaches 00:00 (overtime mode)
 - Stops when user presses Stop button
-- Note: GPIO 21 is used to avoid boot-time noise issues
 
 ### L298N Wiring
 ```
@@ -65,8 +64,8 @@ L298N OUT2          → Motor -
 L298N +12V          → External power supply (6-12V)
 L298N GND           → External power supply GND (common ground with ESP32)
 
-ESP32 GPIO 21       → Buzzer signal pin
-Buzzer VCC          → 3.3V or 5V (depending on buzzer)
+ESP32 GPIO 11       → Buzzer signal pin
+Buzzer VCC          → 3.3V or 5V
 Buzzer GND          → GND
 ```
 
