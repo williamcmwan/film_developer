@@ -95,7 +95,7 @@ void motorCounterClockwise() {
   digitalWrite(motorPin2, HIGH);
 }
 
-// Update timer display once per second
+// Update timer display once per second using LVGL (smooth font)
 void updateTimer() {
   if (timerRunning) {
     unsigned long currentSeconds = (millis() - timerStartMillis) / 1000;
@@ -104,12 +104,12 @@ void updateTimer() {
       char timeStr[6];
       sprintf(timeStr, "%02lu:%02lu", elapsedSeconds / 60, elapsedSeconds % 60);
       
-      // Clear timer area and redraw
-      gfx->fillRect(40, 50, 240, 80, BLACK);
-      gfx->setTextColor(WHITE);
-      gfx->setTextSize(6);
-      gfx->setCursor(70, 75);
-      gfx->print(timeStr);
+      // Update LVGL label with smooth Montserrat font
+      lv_label_set_text(timerLabel, timeStr);
+      lv_obj_invalidate(timerLabel);
+      
+      // Force LVGL to render immediately
+      lv_refr_now(NULL);
     }
   }
 }
@@ -117,6 +117,7 @@ void updateTimer() {
 // Check for stop button and update timer
 void checkStopButton() {
   updateTimer();
+  lv_timer_handler(); // Process LVGL rendering
   
   uint16_t touch_x, touch_y;
   bsp_touch_read();
@@ -169,19 +170,22 @@ void start_btn_event_handler(lv_event_t *e) {
     lv_obj_set_style_bg_color(startBtn, lv_color_make(0, 200, 0), 0);
     lv_timer_handler();
     
-    // Start timer and draw it directly with GFX
+    // Start timer and show with LVGL
     timerRunning = true;
     timerStartMillis = millis();
     elapsedSeconds = 0;
     
-    // Draw initial timer directly with larger clear area
-    gfx->fillRect(40, 50, 240, 80, BLACK);
-    gfx->setTextColor(WHITE);
-    gfx->setTextSize(6);
-    gfx->setCursor(70, 75);
-    gfx->print("00:00");
+    // Show timer with smooth LVGL font
+    lv_label_set_text(timerLabel, "00:00");
+    lv_obj_clear_flag(timerLabel, LV_OBJ_FLAG_HIDDEN);
     
-    delay(200);
+    // Force render multiple times to ensure it shows
+    for (int i = 0; i < 10; i++) {
+      lv_refr_now(NULL);
+      delay(10);
+    }
+    
+    delay(100);
     
     stopRequested = false;
     runMotorSequence();
