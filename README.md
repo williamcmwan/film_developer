@@ -4,12 +4,15 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 
 ## Features
 
-- **LVGL Graphics**: Modern UI framework with smooth rendering and animations
+- **Multi-Screen Interface**: Splash screen, main menu, settings (2 pages), and development screen
+- **4-Stage Development Process**: Developer, Stop Bath, Fixer, and Rinse stages
+- **Countdown Timer**: Large 48pt font MM:SS format with adjustable time (5-second intervals)
+- **Stage Selection**: Click to switch between stages with visual feedback
+- **Motor Control**: Automatic motor start/stop synchronized with timer
+- **Dynamic UI**: Buttons and controls adapt based on timer state
+- **Persistent Settings**: All timing and speed settings saved to flash memory
 - **Touch Interface**: CST816 capacitive touch controller with 320x240 display
-- **Visual Feedback**: Professional button styling with press states
-- **Real-time Timer**: Large 48pt font MM:SS format timer displays elapsed time
-- **Motor Control**: Automated clockwise and counter-clockwise rotation sequences
-- **Responsive Stop**: Stop button responds within 50ms during operation
+- **LVGL Graphics**: Modern UI framework with smooth animations
 - **Serial Logging**: Comprehensive logging for debugging and monitoring
 
 ## Hardware Requirements
@@ -58,59 +61,135 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 
 ## Usage
 
-1. Power on the device
-2. The display shows START and STOP buttons at the bottom
-3. Press **START** to begin the development sequence:
-   - Timer starts counting in MM:SS format
-   - Motor runs clockwise for 10 seconds
-   - Motor runs counter-clockwise for 10 seconds
-4. Press **STOP** at any time to halt the sequence and timer
+### Main Menu
+1. Power on the device - splash screen appears for 3 seconds
+2. Main menu displays two options:
+   - **Start Develop**: Begin the development process
+   - **Settings**: Configure timing and motor speed
 
-## Display Layout
+### Settings
+Configure development parameters across two pages:
 
+**Page 1:**
+- Developer time (default: 7:00)
+- Stop Bath time (default: 1:00)
+- Fixer time (default: 5:00)
+
+**Page 2:**
+- Rinse time (default: 3:00)
+- Reverse time (default: 0:30)
+- Motor speed (default: 100%)
+
+Use +/- buttons to adjust values in 5-second increments. Settings are automatically saved to flash memory.
+
+### Start Develop Screen
+
+**Stage Selection (Top Row):**
+- Four stage buttons: **Dev**, **Stop**, **Fix**, **Rinse**
+- Click any stage to switch (disabled during timer operation)
+- Active stage highlighted in green
+
+**Timer Display (Center):**
+- Large MM:SS countdown display
+- Down button (left) and Up button (right) to adjust time in 5-second intervals
+- Adjustment buttons hidden during timer operation
+
+**Control Buttons (Bottom):**
+
+*When Stopped:*
+- **← (Back)**: Return to main menu
+- **Start**: Begin countdown and start motor
+- **Reset**: Reset timer to default setting value
+
+*When Running:*
+- **Stop**: Full-width button to pause timer and stop motor
+- All other buttons hidden for focused operation
+
+## Screen Layouts
+
+### Main Menu
 ```
 ┌─────────────────────────────┐
+│    Film Developer           │
+│                             │
+│    ┌─────────────────┐      │
+│    │  Start Develop  │      │
+│    └─────────────────┘      │
+│                             │
+│    ┌─────────────────┐      │
+│    │    Settings     │      │
+│    └─────────────────┘      │
+└─────────────────────────────┘
+```
+
+### Start Develop (Stopped)
+```
+┌─────────────────────────────┐
+│ [Dev][Stop][Fix][Rinse]     │  ← Stage buttons
+│                             │
+│   ↓    MM:SS    ↑           │  ← Timer with adjust
 │                             │
 │                             │
-│         MM:SS               │  ← Timer (center)
+│ [←][Start][Reset]           │  ← Controls
+└─────────────────────────────┘
+```
+
+### Start Develop (Running)
+```
+┌─────────────────────────────┐
+│ [Dev][Stop][Fix][Rinse]     │  ← Stage buttons (disabled)
+│                             │
+│        MM:SS                │  ← Timer only
 │                             │
 │                             │
-├─────────────┬───────────────┤
-│   START     │     STOP      │  ← Buttons (bottom)
-└─────────────┴───────────────┘
+│ [      Stop      ]          │  ← Full-width stop
+└─────────────────────────────┘
 ```
 
 ## Serial Monitor Output
 
 Connect at 115200 baud to see:
-- Touch events with coordinates
-- Button press notifications
+- Settings loaded/saved notifications
+- Screen navigation events
+- Stage changes
+- Timer start/stop/reset events
 - Motor state changes
-- Timer information
+- Touch events and button presses
 
 ## Customization
 
-### Adjust Motor Timing
-Modify the loop counters in `runMotorSequence()`:
+### Default Timer Values
+Modify initial settings in `loadSettings()`:
 ```cpp
-for (int i = 0; i < 100; i++) {  // 100 * 100ms = 10 seconds
+settings.devTime = preferences.getInt("devTime", 420);      // 7:00
+settings.stopTime = preferences.getInt("stopTime", 60);     // 1:00
+settings.fixTime = preferences.getInt("fixTime", 300);      // 5:00
+settings.rinseTime = preferences.getInt("rinseTime", 180);  // 3:00
 ```
 
-### Change Button Colors
-Edit the LVGL button styles in `create_ui()`:
+### Timer Adjustment Increment
+Change the increment value in `timerUpHandler()` and `timerDownHandler()`:
 ```cpp
-lv_obj_set_style_bg_color(startBtn, lv_color_make(0, 200, 0), 0);  // Green
-lv_obj_set_style_bg_color(stopBtn, lv_color_make(200, 0, 0), 0);   // Red
+currentTime += 5;  // Change 5 to desired seconds
 ```
 
-### Modify Display Rotation
+### Button Colors
+Edit button colors in screen creation functions:
+```cpp
+lv_obj_set_style_bg_color(startBtn, lv_color_make(0, 150, 0), 0);  // Green
+lv_obj_set_style_bg_color(stopBtn, lv_color_make(200, 100, 0), 0); // Orange
+lv_obj_set_style_bg_color(resetBtn, lv_color_make(150, 0, 0), 0);  // Red
+```
+
+### Stage Button Layout
+Adjust stage button size and spacing in `createDevelopScreen()`:
+```cpp
+int btnWidth = 75;
+int btnSpacing = 5;
+```
+
+### Display Rotation
 Change `LCD_ROTATION` value (0-3) for different orientations.
-
-### Customize Timer Font
-Change the timer font size in `create_ui()`:
-```cpp
-lv_obj_set_style_text_font(timerLabel, &lv_font_montserrat_48, 0);
-```
 
 ## License
 
