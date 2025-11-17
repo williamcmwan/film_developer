@@ -4,14 +4,17 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 
 ## Features
 
-- **Multi-Screen Interface**: Splash screen, main menu, settings (2 pages), and development screen
+- **Multi-Screen Interface**: Splash screen, main menu, settings (3 pages), and development screen
 - **4-Stage Development Process**: Developer, Stop Bath, Fixer, and Rinse stages
 - **Countdown Timer**: Large 48pt font MM:SS format with adjustable time (5-second intervals)
 - **Stage Selection**: Click to switch between stages with visual feedback
 - **PWM Motor Control**: Variable speed control (100-200% actual) with automatic start/stop synchronized with timer
-- **Overtime Mode**: Timer counts up after 00:00, motor reduces to 5% speed, blinking red display, buzzer alert, auto-advances to next stage on Stop
+- **Automatic Motor Reversal**: Motor direction reverses at configurable intervals (default: 10 seconds)
+- **Overtime Mode**: Timer counts up after 00:00, motor reduces to configurable overtime speed (default: 5%), blinking red display, melodic buzzer alert, auto-advances to next stage on Stop
+- **Physical Button Control**: Single button on GPIO 9 for hands-free operation (no touch screen needed)
+- **Screen Rotation**: 180° rotation toggle for left/right-handed use
 - **Dynamic UI**: Buttons and controls adapt based on timer state
-- **Persistent Settings**: All timing and speed settings saved to flash memory
+- **Persistent Settings**: All timing, speed, and rotation settings saved to flash memory
 - **Touch Interface**: CST816 capacitive touch controller with 320x240 display
 - **LVGL Graphics**: Modern UI framework with smooth animations
 - **Serial Logging**: Comprehensive logging for debugging and monitoring
@@ -50,10 +53,18 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 ### Buzzer
 - Buzzer Pin: GPIO 11 → Buzzer signal pin
 - Type: Passive buzzer (3-pin)
-- Plays double-beep pattern when timer reaches 00:00 (overtime mode)
+- Plays melodic pattern (C5-E5-G5-C6) when timer reaches 00:00 (overtime mode)
+- Repeats every 1.5 seconds during overtime
 - Stops when user presses Stop button
 
-### L298N Wiring
+### Physical Button
+- Button Pin: GPIO 9 → Physical button input
+- Type: Momentary push button (normally open)
+- Wiring: Connect one side to GPIO 9, other side to GND
+- Internal pull-up resistor enabled (active LOW)
+- Debounce: 200ms
+
+### Complete Wiring Diagram
 ```
 ESP32 GPIO 12 (PWM) → L298N ENA (speed control)
 ESP32 GPIO 13       → L298N IN1 (direction)
@@ -67,11 +78,14 @@ L298N GND           → External power supply GND (common ground with ESP32)
 ESP32 GPIO 11       → Buzzer signal pin
 Buzzer VCC          → 3.3V or 5V
 Buzzer GND          → GND
+
+ESP32 GPIO 9        → Physical button (one side)
+GND                 → Physical button (other side)
 ```
 
 **Motor Direction:**
 - Forward: IN1=HIGH, IN2=LOW
-- Reverse: IN1=LOW, IN2=HIGH (not currently used)
+- Reverse: IN1=LOW, IN2=HIGH (automatically reverses every 10 seconds by default)
 - Stop: IN1=LOW, IN2=LOW
 
 ## Installation
@@ -101,21 +115,25 @@ Buzzer GND          → GND
    - **Settings**: Configure timing and motor speed
 
 ### Settings
-Configure development parameters across two pages:
+Configure development parameters across three pages:
 
-**Page 1:**
+**Page 1/3:**
 - Developer time (default: 7:00)
 - Stop Bath time (default: 1:00)
 - Fixer time (default: 5:00)
 
-**Page 2:**
+**Page 2/3:**
 - Rinse time (default: 10:00)
-- Reverse time (default: 0:10)
+- Reverse time (default: 0:10) - interval for automatic motor direction reversal
 - Motor speed (default: 0%, range: 0-100%)
   - 0% = 100% actual motor speed
   - 100% = 200% actual motor speed
 
-Use +/- buttons to adjust values in 5-second increments. Settings are automatically saved to flash memory.
+**Page 3/3:**
+- Overtime Speed (default: 5%, range: 1-100%) - motor speed during overtime mode
+- Rotate 180° toggle - flip screen orientation for left/right-handed use
+
+Use +/- buttons to adjust values. Time settings adjust in 5-second increments, speed in 5% increments, overtime speed in 1% increments. All settings are automatically saved to flash memory and persist across reboots.
 
 ### Start Develop Screen
 
@@ -128,6 +146,7 @@ Use +/- buttons to adjust values in 5-second increments. Settings are automatica
 - Large MM:SS countdown display
 - Down button (left) and Up button (right) to adjust time in 5-second intervals
 - Adjustment buttons hidden during timer operation
+- During overtime: displays +MM:SS in blinking red/white
 
 **Control Buttons (Bottom):**
 
@@ -139,6 +158,18 @@ Use +/- buttons to adjust values in 5-second increments. Settings are automatica
 *When Running:*
 - **Stop**: Full-width button to pause timer and stop motor
 - All other buttons hidden for focused operation
+
+### Physical Button Operation
+
+The physical button on GPIO 9 provides hands-free operation:
+
+1. **Main Menu**: Press to jump directly to "Start Develop" screen
+2. **Develop Screen (Idle)**: Press to start the timer and motor
+3. **Develop Screen (Running)**: Press to stop the timer and motor
+4. **Overtime Mode (Dev/Stop/Fix)**: Press to stop and advance to next stage
+5. **Overtime Mode (Rinse)**: Press to stop and return to Dev stage
+
+This allows complete operation without touching the screen!
 
 ## Screen Layouts
 
@@ -154,6 +185,33 @@ Use +/- buttons to adjust values in 5-second increments. Settings are automatica
 │    ┌─────────────────┐      │
 │    │    Settings     │      │
 │    └─────────────────┘      │
+└─────────────────────────────┘
+```
+
+### Settings (3 Pages)
+```
+┌─────────────────────────────┐
+│ [←]  Settings 1/3      [→]  │
+│                             │
+│ Developer    [-] 07:00 [+]  │
+│ Stop Bath    [-] 01:00 [+]  │
+│ Fixer        [-] 05:00 [+]  │
+└─────────────────────────────┘
+
+┌─────────────────────────────┐
+│ [←]  Settings 2/3      [→]  │
+│                             │
+│ Rinse        [-] 10:00 [+]  │
+│ Reverse      [-] 00:10 [+]  │
+│ Speed        [-]   0%  [+]  │
+└─────────────────────────────┘
+
+┌─────────────────────────────┐
+│ [←]  Settings 3/3           │
+│                             │
+│ OT Speed     [-]   5%  [+]  │
+│                             │
+│ Rotate 180°         [Toggle]│
 └─────────────────────────────┘
 ```
 
@@ -181,6 +239,18 @@ Use +/- buttons to adjust values in 5-second increments. Settings are automatica
 └─────────────────────────────┘
 ```
 
+### Start Develop (Overtime)
+```
+┌─────────────────────────────┐
+│ [Dev][Stop][Fix][Rinse]     │  ← Stage buttons (disabled)
+│                             │
+│       +MM:SS                │  ← Blinking red/white
+│                             │
+│                             │
+│ [      Stop      ]          │  ← Stop & advance
+└─────────────────────────────┘
+```
+
 ## Serial Monitor Output
 
 Connect at 115200 baud to see:
@@ -188,7 +258,11 @@ Connect at 115200 baud to see:
 - Screen navigation events
 - Stage changes
 - Timer start/stop/reset events
-- Motor state changes
+- Motor state changes (speed, direction)
+- Motor reversal events
+- Overtime mode transitions
+- Physical button press events
+- Screen rotation changes
 - Touch events and button presses
 
 ## Customization
@@ -196,10 +270,14 @@ Connect at 115200 baud to see:
 ### Default Timer Values
 Modify initial settings in `loadSettings()`:
 ```cpp
-settings.devTime = preferences.getInt("devTime", 420);      // 7:00
-settings.stopTime = preferences.getInt("stopTime", 60);     // 1:00
-settings.fixTime = preferences.getInt("fixTime", 300);      // 5:00
-settings.rinseTime = preferences.getInt("rinseTime", 600);  // 10:00
+settings.devTime = preferences.getInt("devTime", 420);          // 7:00
+settings.stopTime = preferences.getInt("stopTime", 60);         // 1:00
+settings.fixTime = preferences.getInt("fixTime", 300);          // 5:00
+settings.rinseTime = preferences.getInt("rinseTime", 600);      // 10:00
+settings.reverseTime = preferences.getInt("revTime", 10);       // 0:10
+settings.speed = preferences.getInt("speed", 0);                // 0% UI = 100% actual
+settings.overtimeSpeed = preferences.getInt("overtimeSpeed", 5); // 5% default
+settings.rotateScreen = preferences.getBool("rotateScreen", false); // false = 0°
 ```
 
 ### Timer Adjustment Increment
@@ -215,9 +293,19 @@ const int pwmFreq = 5000;      // 5 KHz
 const int pwmResolution = 8;   // 8-bit (0-255)
 ```
 
-Change overtime motor speed:
+Change motor reversal interval:
 ```cpp
-setMotorSpeed(10);  // 10% speed during overtime
+settings.reverseTime = 10;  // Reverse every 10 seconds
+```
+
+Change overtime motor speed default:
+```cpp
+settings.overtimeSpeed = 5;  // 5% speed during overtime (configurable in settings)
+```
+
+Change button debounce delay:
+```cpp
+const unsigned long debounceDelay = 200;  // 200ms
 ```
 
 ### Button Colors
@@ -236,7 +324,9 @@ int btnSpacing = 5;
 ```
 
 ### Display Rotation
-Change `LCD_ROTATION` value (0-3) for different orientations.
+- Use the "Rotate 180°" toggle in Settings 3/3 for runtime rotation
+- Or change `LCD_ROTATION` value (0-3) in code for different default orientations
+- Rotation setting persists across reboots
 
 ## License
 
