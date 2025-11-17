@@ -31,6 +31,13 @@ const int motorIN2 = 14;   // Direction control 2 (IN2)
 // Buzzer pin
 const int buzzerPin = 11;  // Buzzer signal pin (GPIO 11)
 
+// Physical button pin
+const int buttonPin = 9;  // Physical button (GPIO 9)
+
+// Button debounce variables
+unsigned long lastButtonPress = 0;
+const unsigned long debounceDelay = 200;  // 200ms debounce
+
 // PWM configuration for motor
 const int pwmFreq = 5000;      // 5 KHz
 const int pwmResolution = 8;   // 8-bit resolution (0-255)
@@ -56,6 +63,7 @@ lv_obj_t *splashScreen;
 lv_obj_t *mainMenuScreen;
 lv_obj_t *settingsScreen1;
 lv_obj_t *settingsScreen2;
+lv_obj_t *settingsScreen3;
 lv_obj_t *developScreen;
 
 // Settings structure
@@ -67,6 +75,7 @@ struct Settings {
   int reverseTime;    // seconds
   int speed;          // percentage
   int overtimeSpeed;  // percentage (1-100%)
+  bool rotateScreen;  // screen rotation (false = 0°, true = 180°)
 } settings;
 
 // Development state
@@ -260,6 +269,7 @@ void loadSettings() {
   settings.reverseTime = preferences.getInt("revTime", 10);   // 0:10
   settings.speed = preferences.getInt("speed", 0);  // 0% UI = 100% actual
   settings.overtimeSpeed = preferences.getInt("overtimeSpeed", 5);  // 5% default
+  settings.rotateScreen = preferences.getBool("rotateScreen", false);  // false = 0°, true = 180°
   preferences.end();
   
   Serial.println("[SETTINGS] Loaded from flash");
@@ -275,6 +285,7 @@ void saveSettings() {
   preferences.putInt("revTime", settings.reverseTime);
   preferences.putInt("speed", settings.speed);
   preferences.putInt("overtimeSpeed", settings.overtimeSpeed);
+  preferences.putBool("rotateScreen", settings.rotateScreen);
   preferences.end();
   
   Serial.println("[SETTINGS] Saved to flash");
@@ -285,6 +296,7 @@ void createSplashScreen();
 void createMainMenuScreen();
 void createSettingsScreen1();
 void createSettingsScreen2();
+void createSettingsScreen3();
 void createDevelopScreen();
 void showScreen(lv_obj_t *screen);
 
@@ -397,11 +409,13 @@ void mainMenuSettingsHandler(lv_event_t *e) {
 // Settings screen labels
 lv_obj_t *devTimeLabel, *stopTimeLabel, *fixTimeLabel, *rinseTimeLabel, *revTimeLabel, *speedLabel;
 lv_obj_t *overtimeSpeedLabel;
+lv_obj_t *rotateToggle;
 
 void settingsBackHandler(lv_event_t *e);
 void settingsNextHandler(lv_event_t *e);
 void settingsPrevHandler(lv_event_t *e);
 void settingsValueHandler(lv_event_t *e);
+void rotateToggleHandler(lv_event_t *e);
 
 void updateSettingsLabels() {
   char buf[16];
@@ -501,7 +515,7 @@ void createSettingsScreen1() {
   
   // Title
   lv_obj_t *title = lv_label_create(settingsScreen1);
-  lv_label_set_text(title, "Settings 1/2");
+  lv_label_set_text(title, "Settings 1/3");
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
@@ -517,7 +531,7 @@ void createSettingsScreen1() {
   lv_obj_set_style_text_font(nextLabel, &lv_font_montserrat_20, 0);
   lv_obj_center(nextLabel);
   
-  // Settings rows
+  // Settings rows with more spacing
   createSettingRow(settingsScreen1, "Developer", &devTimeLabel, 70, 0);
   createSettingRow(settingsScreen1, "Stop Bath", &stopTimeLabel, 130, 1);
   createSettingRow(settingsScreen1, "Fixer", &fixTimeLabel, 190, 2);
@@ -525,7 +539,7 @@ void createSettingsScreen1() {
   updateSettingsLabels();
 }
 
-// Settings Screen 2 (Rinse, Reverse, Speed, Overtime Speed)
+// Settings Screen 2 (Rinse, Reverse, Speed, Overtime Speed, Rotate Screen)
 void createSettingsScreen2() {
   settingsScreen2 = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(settingsScreen2, lv_color_black(), 0);
@@ -543,16 +557,73 @@ void createSettingsScreen2() {
   
   // Title
   lv_obj_t *title = lv_label_create(settingsScreen2);
-  lv_label_set_text(title, "Settings 2/2");
+  lv_label_set_text(title, "Settings 2/3");
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
   
-  // Settings rows
+  // Next button (right arrow)
+  lv_obj_t *nextBtn = lv_btn_create(settingsScreen2);
+  lv_obj_set_size(nextBtn, 60, 40);
+  lv_obj_align(nextBtn, LV_ALIGN_TOP_RIGHT, -10, 10);
+  lv_obj_add_event_cb(nextBtn, settingsNextHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *nextLabel = lv_label_create(nextBtn);
+  lv_label_set_text(nextLabel, LV_SYMBOL_RIGHT);
+  lv_obj_set_style_text_font(nextLabel, &lv_font_montserrat_20, 0);
+  lv_obj_center(nextLabel);
+  
+  // Settings rows with more spacing
   createSettingRow(settingsScreen2, "Rinse", &rinseTimeLabel, 70, 3);
-  createSettingRow(settingsScreen2, "Reverse", &revTimeLabel, 115, 4);
-  createSettingRow(settingsScreen2, "Speed", &speedLabel, 160, 5);
-  createSettingRow(settingsScreen2, "OT Speed", &overtimeSpeedLabel, 205, 6);
+  createSettingRow(settingsScreen2, "Reverse", &revTimeLabel, 130, 4);
+  createSettingRow(settingsScreen2, "Speed", &speedLabel, 190, 5);
+  
+  updateSettingsLabels();
+}
+
+// Settings Screen 3 (OT Speed, Rotate Screen)
+void createSettingsScreen3() {
+  settingsScreen3 = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(settingsScreen3, lv_color_black(), 0);
+  
+  // Back button (to previous settings page)
+  lv_obj_t *backBtn = lv_btn_create(settingsScreen3);
+  lv_obj_set_size(backBtn, 60, 40);
+  lv_obj_align(backBtn, LV_ALIGN_TOP_LEFT, 10, 10);
+  lv_obj_add_event_cb(backBtn, settingsPrevHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *backLabel = lv_label_create(backBtn);
+  lv_label_set_text(backLabel, LV_SYMBOL_LEFT);
+  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_20, 0);
+  lv_obj_center(backLabel);
+  
+  // Title
+  lv_obj_t *title = lv_label_create(settingsScreen3);
+  lv_label_set_text(title, "Settings 3/3");
+  lv_obj_set_style_text_color(title, lv_color_white(), 0);
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
+  
+  // Settings rows with more spacing
+  createSettingRow(settingsScreen3, "OT Speed", &overtimeSpeedLabel, 70, 6);
+  
+  // Rotate Screen toggle
+  lv_obj_t *rotateLabel = lv_label_create(settingsScreen3);
+  lv_label_set_text(rotateLabel, "Rotate 180");
+  lv_obj_set_style_text_color(rotateLabel, lv_color_white(), 0);
+  lv_obj_set_style_text_font(rotateLabel, &lv_font_montserrat_20, 0);
+  lv_obj_set_pos(rotateLabel, 10, 130);
+  
+  // Toggle switch
+  rotateToggle = lv_switch_create(settingsScreen3);
+  lv_obj_set_size(rotateToggle, 50, 25);
+  lv_obj_set_pos(rotateToggle, 260, 128);
+  lv_obj_add_event_cb(rotateToggle, rotateToggleHandler, LV_EVENT_VALUE_CHANGED, NULL);
+  
+  // Set initial state
+  if (settings.rotateScreen) {
+    lv_obj_add_state(rotateToggle, LV_STATE_CHECKED);
+  }
   
   updateSettingsLabels();
 }
@@ -612,15 +683,52 @@ void settingsBackHandler(lv_event_t *e) {
 }
 
 void settingsNextHandler(lv_event_t *e) {
-  if (settingsScreen2 != NULL) {
+  lv_obj_t *currentScreen = lv_scr_act();
+  
+  if (currentScreen == settingsScreen1 && settingsScreen2 != NULL) {
     showScreen(settingsScreen2);
+  } else if (currentScreen == settingsScreen2 && settingsScreen3 != NULL) {
+    showScreen(settingsScreen3);
   }
 }
 
 void settingsPrevHandler(lv_event_t *e) {
-  if (settingsScreen1 != NULL) {
+  lv_obj_t *currentScreen = lv_scr_act();
+  
+  if (currentScreen == settingsScreen2 && settingsScreen1 != NULL) {
     showScreen(settingsScreen1);
+  } else if (currentScreen == settingsScreen3 && settingsScreen2 != NULL) {
+    showScreen(settingsScreen2);
   }
+}
+
+void applyScreenRotation() {
+  if (settings.rotateScreen) {
+    gfx->setRotation(3);  // 180° rotation (LCD_ROTATION 1 + 2 = 3)
+    bsp_touch_init(&touchWire, 3, SCREEN_WIDTH, SCREEN_HEIGHT);  // Reinit touch with 180° rotation
+    Serial.println("[SETTINGS] Screen rotated 180°");
+  } else {
+    gfx->setRotation(1);  // Normal rotation (LCD_ROTATION)
+    bsp_touch_init(&touchWire, 1, SCREEN_WIDTH, SCREEN_HEIGHT);  // Reinit touch with normal rotation
+    Serial.println("[SETTINGS] Screen rotation normal (0°)");
+  }
+}
+
+void rotateToggleHandler(lv_event_t *e) {
+  lv_obj_t *toggle = lv_event_get_target(e);
+  settings.rotateScreen = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+  
+  // Save settings first
+  saveSettings();
+  
+  // Apply rotation immediately
+  applyScreenRotation();
+  
+  // Force a full screen refresh by invalidating the display
+  lv_obj_invalidate(lv_scr_act());
+  lv_refr_now(NULL);
+  
+  Serial.println("[SETTINGS] Screen rotation applied and refreshed");
 }
 
 // Develop screen handlers
@@ -906,6 +1014,58 @@ void developBackHandler(lv_event_t *e) {
   }
 }
 
+// Physical button handler
+void handlePhysicalButton() {
+  lv_obj_t *currentScreen = lv_scr_act();
+  
+  // 1. Main menu - jump to Start Develop
+  if (currentScreen == mainMenuScreen) {
+    Serial.println("[BUTTON] Main menu -> Start Develop");
+    mainMenuStartHandler(NULL);
+    return;
+  }
+  
+  // 2-5. Develop screen
+  if (currentScreen == developScreen) {
+    if (!timerRunning) {
+      // 2. Timer not started - trigger Start
+      Serial.println("[BUTTON] Develop screen -> Start timer");
+      startButtonHandler(NULL);
+    } else if (isOvertime) {
+      // 4 & 5. During overtime - trigger Stop and advance
+      Serial.println("[BUTTON] Overtime -> Stop and advance");
+      
+      timerRunning = false;
+      stopMotor();
+      stopBuzzer();
+      isOvertime = false;
+      
+      // Advance to next stage or reset to Dev
+      if (currentStage < RINSE) {
+        // Not at last stage - advance to next
+        currentStage = (Stage)(currentStage + 1);
+        currentTime = stageTime[currentStage];
+        Serial.print("[BUTTON] Advanced to next stage: ");
+        Serial.println(currentStage);
+      } else {
+        // 5. At Rinse stage - jump back to Dev
+        currentStage = DEV;
+        currentTime = stageTime[DEV];
+        Serial.println("[BUTTON] At Rinse, jumped back to Dev");
+      }
+      
+      updateTimerDisplay();
+      updateControlButtons();
+      updateStageButtons();
+    } else {
+      // 3. Timer running (not overtime) - trigger Stop
+      Serial.println("[BUTTON] Timer running -> Stop");
+      stopButtonHandler(NULL);
+    }
+    return;
+  }
+}
+
 // Show screen
 void showScreen(lv_obj_t *screen) {
   lv_scr_load(screen);
@@ -920,6 +1080,10 @@ void setup() {
   pinMode(buzzerPin, OUTPUT);
   digitalWrite(buzzerPin, LOW);
   noTone(buzzerPin);
+
+  // Physical button - initialize with internal pull-up
+  pinMode(buttonPin, INPUT_PULLUP);
+  Serial.println("[BUTTON] Physical button initialized on pin 9");
 
   // Configure PWM for motor control (ESP32 Arduino 3.x API)
   ledcAttach(motorENA, pwmFreq, pwmResolution);
@@ -938,9 +1102,18 @@ void setup() {
   digitalWrite(PIN_NUM_LCD_BL, HIGH);
 #endif
 
-  // Initialize touch
+  // Load settings first (before initializing touch/display rotation)
+  loadSettings();
+
+  // Initialize touch with saved rotation
   touchWire.begin(TOUCH_SDA, TOUCH_SCL);
-  bsp_touch_init(&touchWire, TOUCH_ROTATION, SCREEN_WIDTH, SCREEN_HEIGHT);
+  int touchRotation = settings.rotateScreen ? 3 : TOUCH_ROTATION;
+  bsp_touch_init(&touchWire, touchRotation, SCREEN_WIDTH, SCREEN_HEIGHT);
+  
+  // Apply screen rotation
+  if (settings.rotateScreen) {
+    gfx->setRotation(3);  // 180° rotation
+  }
 
   // Initialize LVGL
   lv_init();
@@ -960,14 +1133,12 @@ void setup() {
   indev_drv.read_cb = my_touchpad_read;
   lv_indev_drv_register(&indev_drv);
 
-  // Load settings
-  loadSettings();
-
   // Create all screens
   createSplashScreen();
   createMainMenuScreen();
   createSettingsScreen1();
   createSettingsScreen2();
+  createSettingsScreen3();
   createDevelopScreen();
 
   // Show splash screen
@@ -984,6 +1155,16 @@ void setup() {
 
 void loop() {
   lv_timer_handler();
+  
+  // Check physical button (active LOW with pull-up)
+  if (digitalRead(buttonPin) == LOW) {
+    unsigned long now = millis();
+    if (now - lastButtonPress > debounceDelay) {
+      lastButtonPress = now;
+      handlePhysicalButton();
+      Serial.println("[BUTTON] Button pressed");
+    }
+  }
   
   // Handle countdown timer
   if (timerRunning) {
