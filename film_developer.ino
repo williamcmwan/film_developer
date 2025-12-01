@@ -2,6 +2,10 @@
 #include <Arduino_GFX_Library.h>
 #include <Wire.h>
 #include <Preferences.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+#include <DNSServer.h>
 #include "bsp_cst816.h"
 
 #define PIN_NUM_LCD_SCLK 39
@@ -54,6 +58,30 @@ Arduino_GFX *gfx = new Arduino_ST7789(
 TwoWire touchWire = TwoWire(0);
 Preferences preferences;
 
+// WiFi and Web Server
+WebServer server(80);
+DNSServer dnsServer;
+const byte DNS_PORT = 53;
+
+// WiFi configuration
+struct WiFiConfig {
+  char ssid[33];
+  char password[65];
+  bool configured;
+} wifiConfig;
+
+bool wifiConnected = false;
+bool apMode = true;
+const char* AP_SSID = "Film-Developer";
+const char* AP_PASS = "12345678";
+const char* MDNS_NAME = "filmdeveloper";
+
+// WiFi screen
+lv_obj_t *wifiScreen;
+lv_obj_t *wifiStatusLabel;
+lv_obj_t *wifiSSIDLabel;
+lv_obj_t *wifiIPLabel;
+
 // LVGL display buffer
 static lv_disp_draw_buf_t draw_buf;
 static lv_color_t buf[SCREEN_WIDTH * 10];
@@ -64,6 +92,7 @@ lv_obj_t *mainMenuScreen;
 lv_obj_t *settingsScreen1;
 lv_obj_t *settingsScreen2;
 lv_obj_t *settingsScreen3;
+lv_obj_t *settingsScreen4;  // WiFi settings
 lv_obj_t *developScreen;
 
 // Settings structure
@@ -98,6 +127,14 @@ lv_obj_t *timerLabel;
 lv_obj_t *startBtn, *stopBtn, *resetBtn;
 lv_obj_t *upBtn, *downBtn;
 lv_obj_t *backBtn;
+
+// Forward declarations for UI update functions
+void updateTimerDisplay();
+void updateStageButtons();
+void updateControlButtons();
+void updateSettingsLabels();
+void applyScreenRotation();
+void showScreen(lv_obj_t *screen);
 
 // Display flush callback
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
@@ -275,6 +312,41 @@ void loadSettings() {
   Serial.println("[SETTINGS] Loaded from flash");
 }
 
+// Load WiFi settings from flash
+void loadWiFiSettings() {
+  preferences.begin("wifi", true);
+  wifiConfig.configured = preferences.getBool("configured", false);
+  String ssid = preferences.getString("ssid", "");
+  String pass = preferences.getString("password", "");
+  strncpy(wifiConfig.ssid, ssid.c_str(), sizeof(wifiConfig.ssid) - 1);
+  strncpy(wifiConfig.password, pass.c_str(), sizeof(wifiConfig.password) - 1);
+  preferences.end();
+  
+  Serial.print("[WIFI] Settings loaded, configured: ");
+  Serial.println(wifiConfig.configured ? "yes" : "no");
+}
+
+// Save WiFi settings to flash
+void saveWiFiSettings() {
+  preferences.begin("wifi", false);
+  preferences.putBool("configured", wifiConfig.configured);
+  preferences.putString("ssid", wifiConfig.ssid);
+  preferences.putString("password", wifiConfig.password);
+  preferences.end();
+  
+  Serial.println("[WIFI] Settings saved");
+}
+
+// Reset WiFi settings
+void resetWiFiSettings() {
+  wifiConfig.configured = false;
+  memset(wifiConfig.ssid, 0, sizeof(wifiConfig.ssid));
+  memset(wifiConfig.password, 0, sizeof(wifiConfig.password));
+  saveWiFiSettings();
+  
+  Serial.println("[WIFI] Settings reset");
+}
+
 // Save settings to flash
 void saveSettings() {
   preferences.begin("filmdev", false);
@@ -291,14 +363,714 @@ void saveSettings() {
   Serial.println("[SETTINGS] Saved to flash");
 }
 
+// HTML page templates
+const char* getMenuPageHTML() {
+  static char html[1500];
+  
+  snprintf(html, sizeof(html), R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Film Developer</title>
+  <style>
+    body { font-family: Arial; background: #000; color: white; margin: 0; padding: 20px; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .container { max-width: 320px; width: 100%%; text-align: center; }
+    h1 { color: white; font-size: 28px; margin-bottom: 10px; }
+    .version { color: #888; font-size: 14px; margin-bottom: 20px; }
+    .menu-btn { display: block; width: 100%%; padding: 20px; margin-bottom: 15px; border: none; border-radius: 8px; color: white; font-size: 18px; cursor: pointer; text-decoration: none; box-sizing: border-box; }
+    .btn-start { background: #009600; }
+    .btn-settings { background: #646464; }
+    .menu-btn:hover { opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Film Developer</h1>
+    <p class="version">v1.0</p>
+    <a href="/develop" class="menu-btn btn-start">Start Develop</a>
+    <a href="/settings" class="menu-btn btn-settings">Settings</a>
+  </div>
+</body>
+</html>
+)rawliteral");
+  
+  return html;
+}
+
+const char* getDevelopPageHTML() {
+  static char html[4500];
+  
+  snprintf(html, sizeof(html), R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Film Developer - Develop</title>
+  <style>
+    body { font-family: Arial; background: #000; color: white; margin: 0; padding: 15px; }
+    .container { max-width: 320px; margin: 0 auto; }
+    .stage { display: flex; gap: 5px; margin-bottom: 20px; }
+    .stage-btn { flex: 1; padding: 12px 5px; border: none; border-radius: 5px; background: #3c3c3c; color: white; cursor: pointer; font-size: 14px; }
+    .stage-btn.active { background: #009600; }
+    .stage-btn:disabled { opacity: 0.6; }
+    .timer-row { display: flex; align-items: center; justify-content: center; gap: 15px; margin: 30px 0; }
+    .timer { font-size: 48px; font-family: monospace; min-width: 140px; text-align: center; }
+    .timer.overtime { color: #ff4444; }
+    .adj-btn { width: 50px; height: 50px; border: none; border-radius: 5px; background: #505050; color: white; font-size: 24px; cursor: pointer; }
+    .adj-btn:disabled { opacity: 0.4; }
+    .controls { display: flex; gap: 10px; }
+    .btn { flex: 1; padding: 15px; border: none; border-radius: 5px; color: white; cursor: pointer; font-size: 16px; }
+    .btn-back { background: #3c3c3c; flex: 0 0 60px; }
+    .btn-start { background: #009600; }
+    .btn-stop { background: #c86400; }
+    .btn-reset { background: #960000; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="stage" id="stages"></div>
+    <div class="timer-row">
+      <button class="adj-btn" id="downBtn" onclick="adjustTime(-5)">&darr;</button>
+      <div class="timer" id="timer">00:00</div>
+      <button class="adj-btn" id="upBtn" onclick="adjustTime(5)">&uarr;</button>
+    </div>
+    <div class="controls" id="controls"></div>
+  </div>
+  <script>
+    let running = false;
+    let overtime = false;
+    const stageNames = ['Dev', 'Stop', 'Fix', 'Rinse'];
+    
+    function updateUI() {
+      fetch('/status').then(r => r.json()).then(data => {
+        running = data.running;
+        overtime = data.overtime;
+        
+        document.getElementById('timer').textContent = data.time;
+        document.getElementById('timer').className = 'timer' + (overtime ? ' overtime' : '');
+        
+        document.getElementById('downBtn').style.display = running ? 'none' : 'block';
+        document.getElementById('upBtn').style.display = running ? 'none' : 'block';
+        
+        const stages = document.getElementById('stages');
+        stages.innerHTML = '';
+        stageNames.forEach((name, i) => {
+          const btn = document.createElement('button');
+          btn.className = 'stage-btn' + (i === data.stage ? ' active' : '');
+          btn.textContent = name;
+          btn.disabled = running;
+          btn.onclick = () => setStage(i);
+          stages.appendChild(btn);
+        });
+        
+        const ctrl = document.getElementById('controls');
+        if (running) {
+          ctrl.innerHTML = '<button class="btn btn-stop" style="width:100%%" onclick="stopTimer()">Stop</button>';
+        } else {
+          ctrl.innerHTML = '<button class="btn btn-back" onclick="location.href=\'/\'">&larr;</button>' +
+            '<button class="btn btn-start" onclick="startTimer()">Start</button>' +
+            '<button class="btn btn-reset" onclick="resetTimer()">Reset</button>';
+        }
+      });
+    }
+    
+    function startTimer() { fetch('/start-dev').then(() => updateUI()); }
+    function stopTimer() { fetch('/stop').then(() => updateUI()); }
+    function resetTimer() { fetch('/reset').then(() => updateUI()); }
+    function setStage(s) { fetch('/stage?s=' + s).then(() => updateUI()); }
+    function adjustTime(delta) { fetch('/adjust?d=' + delta).then(() => updateUI()); }
+    
+    updateUI();
+    setInterval(updateUI, 1000);
+  </script>
+</body>
+</html>
+)rawliteral");
+  
+  return html;
+}
+
+const char* getConfigPageHTML() {
+  static char html[2500];
+  
+  snprintf(html, sizeof(html), R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Film Developer - WiFi Setup</title>
+  <style>
+    body { font-family: Arial; background: #000; color: white; margin: 0; padding: 15px; }
+    .container { max-width: 320px; margin: 0 auto; }
+    .back { margin-bottom: 15px; }
+    .back a { color: #888; text-decoration: none; font-size: 14px; }
+    h1 { text-align: center; color: white; font-size: 20px; }
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-size: 14px; }
+    input { width: 100%%; padding: 10px; border: 1px solid #444; border-radius: 5px; background: #333; color: white; box-sizing: border-box; }
+    .btn { width: 100%%; padding: 15px; border: none; border-radius: 5px; background: #009600; color: white; cursor: pointer; font-size: 16px; margin-top: 10px; }
+    .btn:hover { background: #007800; }
+    .info { text-align: center; color: #888; margin-top: 20px; font-size: 12px; }
+    .current { background: #333; padding: 12px; border-radius: 5px; margin-bottom: 15px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="back"><a href="/settings">&larr; Back to Settings</a></div>
+    <h1>WiFi Setup</h1>
+    <div class="current">
+      <p>SSID: <strong>%s</strong></p>
+      <p>Status: <strong>%s</strong></p>
+    </div>
+    <form action="/save-wifi" method="POST">
+      <div class="form-group">
+        <label>WiFi Network Name (SSID)</label>
+        <input type="text" name="ssid" required maxlength="32">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="password" maxlength="64">
+      </div>
+      <button type="submit" class="btn">Save and Connect</button>
+    </form>
+    <div class="info">
+      <p>Device will restart and connect to your WiFi.</p>
+      <p>Access via: http://filmdeveloper.local</p>
+    </div>
+  </div>
+</body>
+</html>
+)rawliteral", 
+    wifiConfig.configured ? wifiConfig.ssid : "Not configured",
+    wifiConnected ? "Connected" : (apMode ? "AP Mode" : "Disconnected"));
+  
+  return html;
+}
+
+const char* getSettingsPageHTML() {
+  static char html[6500];
+  
+  snprintf(html, sizeof(html), R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Film Developer - Settings</title>
+  <style>
+    body { font-family: Arial; background: #000; color: white; margin: 0; padding: 15px; }
+    .container { max-width: 360px; margin: 0 auto; }
+    h1 { text-align: center; color: white; margin-bottom: 10px; font-size: 22px; }
+    .back { margin-bottom: 15px; }
+    .back a { color: #888; text-decoration: none; font-size: 16px; }
+    .setting { display: flex; align-items: center; justify-content: space-between; padding: 14px; background: #333; border-radius: 8px; margin-bottom: 10px; }
+    .setting-name { font-size: 16px; }
+    .setting-controls { display: flex; align-items: center; gap: 12px; }
+    .setting-value { font-size: 20px; font-family: monospace; min-width: 60px; text-align: center; }
+    .adj-btn { width: 44px; height: 44px; border: none; border-radius: 8px; background: #505050; color: white; font-size: 22px; cursor: pointer; }
+    .adj-btn:active { background: #666; }
+    .toggle { display: flex; align-items: center; justify-content: space-between; padding: 14px; background: #333; border-radius: 8px; margin-bottom: 10px; }
+    .switch { position: relative; width: 52px; height: 28px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #555; border-radius: 28px; transition: .3s; }
+    .slider:before { position: absolute; content: ""; height: 22px; width: 22px; left: 3px; bottom: 3px; background: white; border-radius: 50%%; transition: .3s; }
+    input:checked + .slider { background: #009600; }
+    input:checked + .slider:before { transform: translateX(24px); }
+    .section { color: #009600; font-size: 13px; margin: 18px 0 10px 0; text-transform: uppercase; }
+    .wifi-link { display: block; text-align: center; margin-top: 20px; padding: 14px; background: #333; border-radius: 8px; color: #009600; text-decoration: none; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="back"><a href="/">&larr; Back</a></div>
+    <h1>Settings</h1>
+    
+    <div class="section">Stage Times</div>
+    <div class="setting">
+      <span class="setting-name">Developer</span>
+      <div class="setting-controls">
+        <button class="adj-btn" onclick="adj('devTime',-5)">-</button>
+        <span class="setting-value" id="devTime">%02d:%02d</span>
+        <button class="adj-btn" onclick="adj('devTime',5)">+</button>
+      </div>
+    </div>
+    <div class="setting">
+      <span class="setting-name">Stop Bath</span>
+      <div class="setting-controls">
+        <button class="adj-btn" onclick="adj('stopTime',-5)">-</button>
+        <span class="setting-value" id="stopTime">%02d:%02d</span>
+        <button class="adj-btn" onclick="adj('stopTime',5)">+</button>
+      </div>
+    </div>
+    <div class="setting">
+      <span class="setting-name">Fixer</span>
+      <div class="setting-controls">
+        <button class="adj-btn" onclick="adj('fixTime',-5)">-</button>
+        <span class="setting-value" id="fixTime">%02d:%02d</span>
+        <button class="adj-btn" onclick="adj('fixTime',5)">+</button>
+      </div>
+    </div>
+    <div class="setting">
+      <span class="setting-name">Rinse</span>
+      <div class="setting-controls">
+        <button class="adj-btn" onclick="adj('rinseTime',-5)">-</button>
+        <span class="setting-value" id="rinseTime">%02d:%02d</span>
+        <button class="adj-btn" onclick="adj('rinseTime',5)">+</button>
+      </div>
+    </div>
+    
+    <div class="section">Motor</div>
+    <div class="setting">
+      <span class="setting-name">Reverse</span>
+      <div class="setting-controls">
+        <button class="adj-btn" onclick="adj('reverseTime',-5)">-</button>
+        <span class="setting-value" id="reverseTime">%02d:%02d</span>
+        <button class="adj-btn" onclick="adj('reverseTime',5)">+</button>
+      </div>
+    </div>
+    <div class="setting">
+      <span class="setting-name">Speed</span>
+      <div class="setting-controls">
+        <button class="adj-btn" onclick="adj('speed',-5)">-</button>
+        <span class="setting-value" id="speed">%d%%</span>
+        <button class="adj-btn" onclick="adj('speed',5)">+</button>
+      </div>
+    </div>
+    <div class="setting">
+      <span class="setting-name">OT Speed</span>
+      <div class="setting-controls">
+        <button class="adj-btn" onclick="adj('overtimeSpeed',-1)">-</button>
+        <span class="setting-value" id="overtimeSpeed">%d%%</span>
+        <button class="adj-btn" onclick="adj('overtimeSpeed',1)">+</button>
+      </div>
+    </div>
+    
+    <div class="section">Display</div>
+    <div class="toggle">
+      <span class="setting-name">Rotate 180</span>
+      <label class="switch">
+        <input type="checkbox" id="rotateScreen" %s onchange="toggleRotate()">
+        <span class="slider"></span>
+      </label>
+    </div>
+    
+    <a href="/config" class="wifi-link">Setup WiFi</a>
+  </div>
+  <script>
+    function adj(s,d){fetch('/setting-adj?s='+s+'&d='+d).then(r=>r.json()).then(data=>{if(data.value!==undefined){const el=document.getElementById(s);if(s==='speed'||s==='overtimeSpeed'){el.textContent=data.value+'%%';}else{const m=Math.floor(data.value/60);const sec=data.value%%60;el.textContent=String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');}}});}
+    function toggleRotate(){fetch('/setting-rotate?v='+(document.getElementById('rotateScreen').checked?'1':'0'));}
+  </script>
+</body>
+</html>
+)rawliteral",
+    settings.devTime / 60, settings.devTime % 60,
+    settings.stopTime / 60, settings.stopTime % 60,
+    settings.fixTime / 60, settings.fixTime % 60,
+    settings.rinseTime / 60, settings.rinseTime % 60,
+    settings.reverseTime / 60, settings.reverseTime % 60,
+    settings.speed,
+    settings.overtimeSpeed,
+    settings.rotateScreen ? "checked" : "");
+  
+  return html;
+}
+
+// Web server handlers
+void handleRoot() {
+  if (apMode && !wifiConfig.configured) {
+    server.send(200, "text/html", getConfigPageHTML());
+  } else {
+    server.send(200, "text/html", getMenuPageHTML());
+  }
+}
+
+void handleDevelop() {
+  // Initialize stage times from settings when entering develop screen
+  stageTime[DEV] = settings.devTime;
+  stageTime[STOP_BATH] = settings.stopTime;
+  stageTime[FIX] = settings.fixTime;
+  stageTime[RINSE] = settings.rinseTime;
+  currentStage = DEV;
+  currentTime = stageTime[DEV];
+  timerRunning = false;
+  isOvertime = false;
+  
+  // Navigate touchscreen to develop screen
+  if (developScreen != NULL) {
+    showScreen(developScreen);
+    updateTimerDisplay();
+    updateStageButtons();
+    updateControlButtons();
+  }
+  
+  Serial.println("[WEB] Entered develop screen");
+  server.send(200, "text/html", getDevelopPageHTML());
+}
+
+void handleConfig() {
+  server.send(200, "text/html", getConfigPageHTML());
+}
+
+void handleSaveWiFi() {
+  if (server.hasArg("ssid")) {
+    String ssid = server.arg("ssid");
+    String password = server.arg("password");
+    
+    strncpy(wifiConfig.ssid, ssid.c_str(), sizeof(wifiConfig.ssid) - 1);
+    strncpy(wifiConfig.password, password.c_str(), sizeof(wifiConfig.password) - 1);
+    wifiConfig.configured = true;
+    saveWiFiSettings();
+    
+    // Send page with auto-redirect to filmdeveloper.local
+    server.send(200, "text/html", R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WiFi Saved</title>
+  <style>
+    body { font-family: Arial; background: #1a1a1a; color: white; text-align: center; padding: 50px; }
+    .spinner { border: 4px solid #333; border-top: 4px solid #4CAF50; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    a { color: #4CAF50; }
+  </style>
+</head>
+<body>
+  <h1>WiFi Saved!</h1>
+  <div class="spinner"></div>
+  <p>Connecting to your network...</p>
+  <p>You will be redirected to <a href="http://filmdeveloper.local">http://filmdeveloper.local</a></p>
+  <p style="color:#888;font-size:14px;">If redirect doesn't work, connect to your WiFi network and open the link manually.</p>
+  <script>
+    setTimeout(function() {
+      window.location.href = 'http://filmdeveloper.local';
+    }, 10000);
+  </script>
+</body>
+</html>
+)rawliteral");
+    delay(500);
+    ESP.restart();
+  } else {
+    server.send(400, "text/plain", "Missing SSID");
+  }
+}
+
+void handleStatus() {
+  char json[128];
+  char timeStr[16];
+  
+  if (isOvertime) {
+    snprintf(timeStr, sizeof(timeStr), "+%02d:%02d", currentTime / 60, currentTime % 60);
+  } else {
+    snprintf(timeStr, sizeof(timeStr), "%02d:%02d", currentTime / 60, currentTime % 60);
+  }
+  
+  snprintf(json, sizeof(json), 
+    "{\"running\":%s,\"overtime\":%s,\"stage\":%d,\"time\":\"%s\"}",
+    timerRunning ? "true" : "false",
+    isOvertime ? "true" : "false",
+    currentStage,
+    timeStr);
+  
+  server.send(200, "application/json", json);
+}
+
+void handleStart() {
+  if (!timerRunning) {
+    timerRunning = true;
+    isOvertime = false;
+    lastSecond = millis();
+    startMotor();
+    updateControlButtons();
+    updateStageButtons();
+    updateTimerDisplay();
+    Serial.println("[WEB] Timer started");
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+// Start timer from develop screen (web)
+void handleStartDev() {
+  if (!timerRunning) {
+    timerRunning = true;
+    isOvertime = false;
+    lastSecond = millis();
+    
+    // Navigate touchscreen to develop screen if not already there
+    if (developScreen != NULL) {
+      showScreen(developScreen);
+    }
+    
+    startMotor();
+    updateControlButtons();
+    updateStageButtons();
+    updateTimerDisplay();
+    
+    Serial.println("[WEB] Timer started");
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+void handleStop() {
+  if (timerRunning) {
+    timerRunning = false;
+    stopMotor();
+    stopBuzzer();
+    
+    if (isOvertime) {
+      isOvertime = false;
+      if (currentStage < RINSE) {
+        currentStage = (Stage)(currentStage + 1);
+        currentTime = stageTime[currentStage];
+      } else {
+        currentTime = stageTime[currentStage];
+      }
+      updateTimerDisplay();
+    }
+    
+    updateControlButtons();
+    updateStageButtons();
+    Serial.println("[WEB] Timer stopped");
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+void handleReset() {
+  if (!timerRunning) {
+    isOvertime = false;
+    switch(currentStage) {
+      case DEV: stageTime[DEV] = settings.devTime; break;
+      case STOP_BATH: stageTime[STOP_BATH] = settings.stopTime; break;
+      case FIX: stageTime[FIX] = settings.fixTime; break;
+      case RINSE: stageTime[RINSE] = settings.rinseTime; break;
+    }
+    currentTime = stageTime[currentStage];
+    updateTimerDisplay();
+    Serial.println("[WEB] Timer reset");
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+void handleStage() {
+  if (!timerRunning && server.hasArg("s")) {
+    int stage = server.arg("s").toInt();
+    if (stage >= 0 && stage <= 3) {
+      currentStage = (Stage)stage;
+      // Always load time from settings when switching stages
+      switch(currentStage) {
+        case DEV: stageTime[DEV] = settings.devTime; break;
+        case STOP_BATH: stageTime[STOP_BATH] = settings.stopTime; break;
+        case FIX: stageTime[FIX] = settings.fixTime; break;
+        case RINSE: stageTime[RINSE] = settings.rinseTime; break;
+      }
+      currentTime = stageTime[currentStage];
+      updateStageButtons();
+      updateTimerDisplay();
+      Serial.print("[WEB] Stage changed to: ");
+      Serial.println(stage);
+    }
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+void handleAdjust() {
+  if (!timerRunning && server.hasArg("d")) {
+    int delta = server.arg("d").toInt();
+    currentTime += delta;
+    if (currentTime < 0) currentTime = 0;
+    if (currentTime > 3600) currentTime = 3600;
+    stageTime[currentStage] = currentTime;
+    updateTimerDisplay();
+    Serial.print("[WEB] Time adjusted by: ");
+    Serial.println(delta);
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+void handleNotFound() {
+  // Captive portal redirect
+  if (apMode) {
+    server.sendHeader("Location", "http://192.168.4.1/");
+    server.send(302, "text/plain", "");
+  } else {
+    server.send(404, "text/plain", "Not Found");
+  }
+}
+
+void handleSettings() {
+  server.send(200, "text/html", getSettingsPageHTML());
+}
+
+void handleSettingAdj() {
+  if (server.hasArg("s") && server.hasArg("d")) {
+    String setting = server.arg("s");
+    int delta = server.arg("d").toInt();
+    int newValue = 0;
+    
+    if (setting == "devTime") {
+      settings.devTime += delta;
+      if (settings.devTime < 0) settings.devTime = 0;
+      if (settings.devTime > 3600) settings.devTime = 3600;
+      newValue = settings.devTime;
+    } else if (setting == "stopTime") {
+      settings.stopTime += delta;
+      if (settings.stopTime < 0) settings.stopTime = 0;
+      if (settings.stopTime > 600) settings.stopTime = 600;
+      newValue = settings.stopTime;
+    } else if (setting == "fixTime") {
+      settings.fixTime += delta;
+      if (settings.fixTime < 0) settings.fixTime = 0;
+      if (settings.fixTime > 3600) settings.fixTime = 3600;
+      newValue = settings.fixTime;
+    } else if (setting == "rinseTime") {
+      settings.rinseTime += delta;
+      if (settings.rinseTime < 0) settings.rinseTime = 0;
+      if (settings.rinseTime > 3600) settings.rinseTime = 3600;
+      newValue = settings.rinseTime;
+    } else if (setting == "reverseTime") {
+      settings.reverseTime += delta;
+      if (settings.reverseTime < 0) settings.reverseTime = 0;
+      if (settings.reverseTime > 300) settings.reverseTime = 300;
+      newValue = settings.reverseTime;
+    } else if (setting == "speed") {
+      settings.speed += delta;
+      if (settings.speed < 0) settings.speed = 0;
+      if (settings.speed > 100) settings.speed = 100;
+      newValue = settings.speed;
+    } else if (setting == "overtimeSpeed") {
+      settings.overtimeSpeed += delta;
+      if (settings.overtimeSpeed < 1) settings.overtimeSpeed = 1;
+      if (settings.overtimeSpeed > 100) settings.overtimeSpeed = 100;
+      newValue = settings.overtimeSpeed;
+    }
+    
+    saveSettings();
+    updateSettingsLabels();
+    
+    char json[32];
+    snprintf(json, sizeof(json), "{\"value\":%d}", newValue);
+    server.send(200, "application/json", json);
+    Serial.print("[WEB] Setting ");
+    Serial.print(setting);
+    Serial.print(" adjusted to: ");
+    Serial.println(newValue);
+  } else {
+    server.send(400, "text/plain", "Missing parameters");
+  }
+}
+
+void handleSettingRotate() {
+  if (server.hasArg("v")) {
+    settings.rotateScreen = server.arg("v") == "1";
+    saveSettings();
+    applyScreenRotation();
+    lv_obj_invalidate(lv_scr_act());
+    lv_refr_now(NULL);
+    server.send(200, "text/plain", "OK");
+    Serial.print("[WEB] Screen rotation set to: ");
+    Serial.println(settings.rotateScreen ? "180°" : "0°");
+  } else {
+    server.send(400, "text/plain", "Missing parameter");
+  }
+}
+
+// Setup web server routes
+void setupWebServer() {
+  server.on("/", handleRoot);
+  server.on("/develop", handleDevelop);
+  server.on("/config", handleConfig);
+  server.on("/save-wifi", HTTP_POST, handleSaveWiFi);
+  server.on("/status", handleStatus);
+  server.on("/start", handleStart);
+  server.on("/start-dev", handleStartDev);
+  server.on("/stop", handleStop);
+  server.on("/reset", handleReset);
+  server.on("/stage", handleStage);
+  server.on("/adjust", handleAdjust);
+  server.on("/settings", handleSettings);
+  server.on("/setting-adj", handleSettingAdj);
+  server.on("/setting-rotate", handleSettingRotate);
+  server.onNotFound(handleNotFound);
+  server.begin();
+  Serial.println("[WEB] Server started");
+}
+
+// Start AP mode
+void startAPMode() {
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID, AP_PASS);
+  apMode = true;
+  wifiConnected = false;
+  
+  // Start DNS server for captive portal
+  dnsServer.start(DNS_PORT, "*", WiFi.softAPIP());
+  
+  Serial.print("[WIFI] AP Mode started. SSID: ");
+  Serial.println(AP_SSID);
+  Serial.print("[WIFI] AP IP: ");
+  Serial.println(WiFi.softAPIP());
+}
+
+// Connect to WiFi
+void connectToWiFi() {
+  if (!wifiConfig.configured) {
+    startAPMode();
+    return;
+  }
+  
+  Serial.print("[WIFI] Connecting to: ");
+  Serial.println(wifiConfig.ssid);
+  
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(wifiConfig.ssid, wifiConfig.password);
+  
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiConnected = true;
+    apMode = false;
+    
+    // Start mDNS
+    if (MDNS.begin(MDNS_NAME)) {
+      MDNS.addService("http", "tcp", 80);
+      Serial.println("[WIFI] mDNS started: http://filmdeveloper.local");
+    }
+    
+    Serial.println();
+    Serial.print("[WIFI] Connected! IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println();
+    Serial.println("[WIFI] Connection failed, starting AP mode");
+    startAPMode();
+  }
+}
+
 // Forward declarations
 void createSplashScreen();
 void createMainMenuScreen();
 void createSettingsScreen1();
 void createSettingsScreen2();
 void createSettingsScreen3();
+void createSettingsScreen4();
 void createDevelopScreen();
 void showScreen(lv_obj_t *screen);
+void updateWiFiStatusLabels();
+void updateTimerDisplay();
+void updateStageButtons();
+void updateControlButtons();
+void updateSettingsLabels();
+void applyScreenRotation();
 
 // Splash screen with animation
 void createSplashScreen() {
@@ -515,7 +1287,7 @@ void createSettingsScreen1() {
   
   // Title
   lv_obj_t *title = lv_label_create(settingsScreen1);
-  lv_label_set_text(title, "Settings 1/3");
+  lv_label_set_text(title, "Settings 1/4");
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
@@ -557,7 +1329,7 @@ void createSettingsScreen2() {
   
   // Title
   lv_obj_t *title = lv_label_create(settingsScreen2);
-  lv_label_set_text(title, "Settings 2/3");
+  lv_label_set_text(title, "Settings 2/4");
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
@@ -599,10 +1371,21 @@ void createSettingsScreen3() {
   
   // Title
   lv_obj_t *title = lv_label_create(settingsScreen3);
-  lv_label_set_text(title, "Settings 3/3");
+  lv_label_set_text(title, "Settings 3/4");
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
   lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
+  
+  // Next button (right arrow)
+  lv_obj_t *nextBtn = lv_btn_create(settingsScreen3);
+  lv_obj_set_size(nextBtn, 60, 40);
+  lv_obj_align(nextBtn, LV_ALIGN_TOP_RIGHT, -10, 10);
+  lv_obj_add_event_cb(nextBtn, settingsNextHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *nextLabel = lv_label_create(nextBtn);
+  lv_label_set_text(nextLabel, LV_SYMBOL_RIGHT);
+  lv_obj_set_style_text_font(nextLabel, &lv_font_montserrat_20, 0);
+  lv_obj_center(nextLabel);
   
   // Settings rows with more spacing
   createSettingRow(settingsScreen3, "OT Speed", &overtimeSpeedLabel, 70, 6);
@@ -626,6 +1409,132 @@ void createSettingsScreen3() {
   }
   
   updateSettingsLabels();
+}
+
+// WiFi Reset handler
+void wifiResetHandler(lv_event_t *e) {
+  resetWiFiSettings();
+  Serial.println("[WIFI] Settings reset, restarting...");
+  
+  // Update display before restart
+  if (wifiStatusLabel != NULL) {
+    lv_label_set_text(wifiStatusLabel, "Resetting...");
+  }
+  lv_refr_now(NULL);
+  
+  delay(500);
+  ESP.restart();
+}
+
+// Update WiFi status labels
+void updateWiFiStatusLabels() {
+  if (wifiStatusLabel != NULL) {
+    if (apMode) {
+      lv_label_set_text(wifiStatusLabel, "AP Mode");
+    } else if (wifiConnected) {
+      lv_label_set_text(wifiStatusLabel, "Connected");
+    } else {
+      lv_label_set_text(wifiStatusLabel, "Disconnected");
+    }
+  }
+  
+  if (wifiSSIDLabel != NULL) {
+    if (apMode) {
+      char buf[48];
+      snprintf(buf, sizeof(buf), "SSID: %s", AP_SSID);
+      lv_label_set_text(wifiSSIDLabel, buf);
+    } else if (wifiConfig.configured) {
+      char buf[48];
+      snprintf(buf, sizeof(buf), "SSID: %s", wifiConfig.ssid);
+      lv_label_set_text(wifiSSIDLabel, buf);
+    } else {
+      lv_label_set_text(wifiSSIDLabel, "SSID: Not configured");
+    }
+  }
+  
+  if (wifiIPLabel != NULL) {
+    char buf[32];
+    if (apMode) {
+      snprintf(buf, sizeof(buf), "IP: %s", WiFi.softAPIP().toString().c_str());
+    } else if (wifiConnected) {
+      snprintf(buf, sizeof(buf), "IP: %s", WiFi.localIP().toString().c_str());
+    } else {
+      snprintf(buf, sizeof(buf), "IP: --");
+    }
+    lv_label_set_text(wifiIPLabel, buf);
+  }
+}
+
+// Settings Screen 4 (WiFi)
+void createSettingsScreen4() {
+  settingsScreen4 = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(settingsScreen4, lv_color_black(), 0);
+  
+  // Back button (to previous settings page)
+  lv_obj_t *backBtn = lv_btn_create(settingsScreen4);
+  lv_obj_set_size(backBtn, 60, 40);
+  lv_obj_align(backBtn, LV_ALIGN_TOP_LEFT, 10, 10);
+  lv_obj_add_event_cb(backBtn, settingsPrevHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *backLabel = lv_label_create(backBtn);
+  lv_label_set_text(backLabel, LV_SYMBOL_LEFT);
+  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_20, 0);
+  lv_obj_center(backLabel);
+  
+  // Title
+  lv_obj_t *title = lv_label_create(settingsScreen4);
+  lv_label_set_text(title, "WiFi 4/4");
+  lv_obj_set_style_text_color(title, lv_color_white(), 0);
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
+  
+  // WiFi Status
+  lv_obj_t *statusTitle = lv_label_create(settingsScreen4);
+  lv_label_set_text(statusTitle, "Status:");
+  lv_obj_set_style_text_color(statusTitle, lv_color_make(150, 150, 150), 0);
+  lv_obj_set_style_text_font(statusTitle, &lv_font_montserrat_14, 0);
+  lv_obj_set_pos(statusTitle, 10, 60);
+  
+  wifiStatusLabel = lv_label_create(settingsScreen4);
+  lv_label_set_text(wifiStatusLabel, "...");
+  lv_obj_set_style_text_color(wifiStatusLabel, lv_color_white(), 0);
+  lv_obj_set_style_text_font(wifiStatusLabel, &lv_font_montserrat_18, 0);
+  lv_obj_set_pos(wifiStatusLabel, 80, 58);
+  
+  // WiFi SSID
+  wifiSSIDLabel = lv_label_create(settingsScreen4);
+  lv_label_set_text(wifiSSIDLabel, "SSID: ...");
+  lv_obj_set_style_text_color(wifiSSIDLabel, lv_color_white(), 0);
+  lv_obj_set_style_text_font(wifiStatusLabel, &lv_font_montserrat_16, 0);
+  lv_obj_set_pos(wifiSSIDLabel, 10, 90);
+  
+  // WiFi IP
+  wifiIPLabel = lv_label_create(settingsScreen4);
+  lv_label_set_text(wifiIPLabel, "IP: ...");
+  lv_obj_set_style_text_color(wifiIPLabel, lv_color_white(), 0);
+  lv_obj_set_style_text_font(wifiIPLabel, &lv_font_montserrat_16, 0);
+  lv_obj_set_pos(wifiIPLabel, 10, 120);
+  
+  // mDNS info
+  lv_obj_t *mdnsLabel = lv_label_create(settingsScreen4);
+  lv_label_set_text(mdnsLabel, "http://filmdeveloper.local");
+  lv_obj_set_style_text_color(mdnsLabel, lv_color_make(100, 200, 100), 0);
+  lv_obj_set_style_text_font(mdnsLabel, &lv_font_montserrat_14, 0);
+  lv_obj_set_pos(mdnsLabel, 10, 150);
+  
+  // Reset WiFi button
+  lv_obj_t *resetBtn = lv_btn_create(settingsScreen4);
+  lv_obj_set_size(resetBtn, 200, 50);
+  lv_obj_align(resetBtn, LV_ALIGN_BOTTOM_MID, 0, -15);
+  lv_obj_set_style_bg_color(resetBtn, lv_color_make(180, 50, 50), 0);
+  lv_obj_add_event_cb(resetBtn, wifiResetHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *resetLabel = lv_label_create(resetBtn);
+  lv_label_set_text(resetLabel, "Reset WiFi");
+  lv_obj_set_style_text_font(resetLabel, &lv_font_montserrat_18, 0);
+  lv_obj_center(resetLabel);
+  
+  updateWiFiStatusLabels();
 }
 
 void settingsValueHandler(lv_event_t *e) {
@@ -689,6 +1598,9 @@ void settingsNextHandler(lv_event_t *e) {
     showScreen(settingsScreen2);
   } else if (currentScreen == settingsScreen2 && settingsScreen3 != NULL) {
     showScreen(settingsScreen3);
+  } else if (currentScreen == settingsScreen3 && settingsScreen4 != NULL) {
+    updateWiFiStatusLabels();
+    showScreen(settingsScreen4);
   }
 }
 
@@ -699,6 +1611,8 @@ void settingsPrevHandler(lv_event_t *e) {
     showScreen(settingsScreen1);
   } else if (currentScreen == settingsScreen3 && settingsScreen2 != NULL) {
     showScreen(settingsScreen2);
+  } else if (currentScreen == settingsScreen4 && settingsScreen3 != NULL) {
+    showScreen(settingsScreen3);
   }
 }
 
@@ -913,6 +1827,13 @@ void createDevelopScreen() {
 void stageButtonHandler(lv_event_t *e) {
   int stage = (int)(intptr_t)lv_event_get_user_data(e);
   currentStage = (Stage)stage;
+  // Always load time from settings when switching stages
+  switch(currentStage) {
+    case DEV: stageTime[DEV] = settings.devTime; break;
+    case STOP_BATH: stageTime[STOP_BATH] = settings.stopTime; break;
+    case FIX: stageTime[FIX] = settings.fixTime; break;
+    case RINSE: stageTime[RINSE] = settings.rinseTime; break;
+  }
   currentTime = stageTime[currentStage];
   updateStageButtons();
   updateTimerDisplay();
@@ -1104,6 +2025,7 @@ void setup() {
 
   // Load settings first (before initializing touch/display rotation)
   loadSettings();
+  loadWiFiSettings();
 
   // Initialize touch with saved rotation
   touchWire.begin(TOUCH_SDA, TOUCH_SCL);
@@ -1139,10 +2061,15 @@ void setup() {
   createSettingsScreen1();
   createSettingsScreen2();
   createSettingsScreen3();
+  createSettingsScreen4();
   createDevelopScreen();
 
   // Show splash screen
   showScreen(splashScreen);
+  
+  // Initialize WiFi
+  connectToWiFi();
+  setupWebServer();
   
   // Auto-transition to main menu after 3 seconds
   lv_timer_t *timer = lv_timer_create([](lv_timer_t *timer) {
@@ -1155,6 +2082,14 @@ void setup() {
 
 void loop() {
   lv_timer_handler();
+  
+  // Handle web server requests
+  server.handleClient();
+  
+  // Handle DNS for captive portal in AP mode
+  if (apMode) {
+    dnsServer.processNextRequest();
+  }
   
   // Check physical button (active LOW with pull-up)
   if (digitalRead(buttonPin) == LOW) {

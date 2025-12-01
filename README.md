@@ -4,7 +4,10 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 
 ## Features
 
-- **Multi-Screen Interface**: Splash screen, main menu, settings (3 pages), and development screen
+- **Multi-Screen Interface**: Splash screen, main menu, settings (4 pages), and development screen
+- **WiFi Connectivity**: Connect to your home network or use AP mode for configuration
+- **Web Interface**: Control the device from any browser via http://filmdeveloper.local
+- **mDNS Support**: Easy access without knowing the IP address
 - **4-Stage Development Process**: Developer, Stop Bath, Fixer, and Rinse stages
 - **Countdown Timer**: Large 48pt font MM:SS format with adjustable time (5-second intervals)
 - **Stage Selection**: Click to switch between stages with visual feedback
@@ -95,6 +98,10 @@ GND                 → Physical button (other side)
    - **lvgl** (v8.3.0 or later) - Install via Library Manager
    - **Arduino_GFX_Library** - Install via Library Manager
    - **Wire** (built-in)
+   - **WiFi** (built-in for ESP32)
+   - **WebServer** (built-in for ESP32)
+   - **ESPmDNS** (built-in for ESP32)
+   - **DNSServer** (built-in for ESP32)
    - **bsp_cst816** (custom touch library)
 3. Configure LVGL:
    - Copy `lv_conf_template.h` from the lvgl library folder to your Arduino libraries folder
@@ -129,9 +136,16 @@ Configure development parameters across three pages:
   - 0% = 100% actual motor speed
   - 100% = 200% actual motor speed
 
-**Page 3/3:**
+**Page 3/4:**
 - Overtime Speed (default: 5%, range: 1-100%) - motor speed during overtime mode
 - Rotate 180° toggle - flip screen orientation for left/right-handed use
+
+**Page 4/4 (WiFi):**
+- WiFi Status: Shows current connection status (AP Mode, Connected, Disconnected)
+- SSID: Current network name
+- IP Address: Device IP address
+- mDNS URL: http://filmdeveloper.local
+- Reset WiFi button: Clear WiFi settings and restart in AP mode
 
 Use +/- buttons to adjust values. Time settings adjust in 5-second increments, speed in 5% increments, overtime speed in 1% increments. All settings are automatically saved to flash memory and persist across reboots.
 
@@ -171,6 +185,41 @@ The physical button on GPIO 9 provides hands-free operation:
 
 This allows complete operation without touching the screen!
 
+## WiFi & Web Interface
+
+### Initial Setup (AP Mode)
+1. On first boot (or after WiFi reset), the device creates a WiFi hotspot:
+   - SSID: `FilmDeveloper`
+   - Password: `12345678`
+2. Connect to this network with your phone or computer
+3. Open a browser and go to `http://192.168.4.1` (or any URL - captive portal will redirect)
+4. Enter your home WiFi network name (SSID) and password
+5. Click "Save & Connect" - the device will restart and connect to your network
+
+### Normal Operation (Station Mode)
+Once configured, the device connects to your WiFi network automatically on boot.
+
+Access the web interface at: **http://filmdeveloper.local**
+
+The web interface provides the same controls as the touchscreen:
+- View and select development stages (Dev, Stop, Fix, Rinse)
+- Start/Stop/Reset the timer
+- Adjust time with +/- buttons
+- Real-time status updates every second
+
+### Reset WiFi Settings
+To reconfigure WiFi or switch networks:
+1. Go to Settings → Page 4/4 (WiFi)
+2. Tap "Reset WiFi" button
+3. Device will restart in AP mode for reconfiguration
+
+### Troubleshooting
+- If the device can't connect to your WiFi, it will automatically fall back to AP mode
+- Check Serial Monitor (115200 baud) for WiFi connection status
+- mDNS (filmdeveloper.local) requires your device to support mDNS/Bonjour
+  - Works on most modern devices (iOS, macOS, Windows 10+, Linux with Avahi)
+  - If mDNS doesn't work, use the IP address shown on the WiFi settings screen
+
 ## Screen Layouts
 
 ### Main Menu
@@ -188,10 +237,10 @@ This allows complete operation without touching the screen!
 └─────────────────────────────┘
 ```
 
-### Settings (3 Pages)
+### Settings (4 Pages)
 ```
 ┌─────────────────────────────┐
-│ [←]  Settings 1/3      [→]  │
+│ [←]  Settings 1/4      [→]  │
 │                             │
 │ Developer    [-] 07:00 [+]  │
 │ Stop Bath    [-] 01:00 [+]  │
@@ -199,7 +248,7 @@ This allows complete operation without touching the screen!
 └─────────────────────────────┘
 
 ┌─────────────────────────────┐
-│ [←]  Settings 2/3      [→]  │
+│ [←]  Settings 2/4      [→]  │
 │                             │
 │ Rinse        [-] 10:00 [+]  │
 │ Reverse      [-] 00:10 [+]  │
@@ -207,11 +256,22 @@ This allows complete operation without touching the screen!
 └─────────────────────────────┘
 
 ┌─────────────────────────────┐
-│ [←]  Settings 3/3           │
+│ [←]  Settings 3/4      [→]  │
 │                             │
 │ OT Speed     [-]   5%  [+]  │
 │                             │
 │ Rotate 180°         [Toggle]│
+└─────────────────────────────┘
+
+┌─────────────────────────────┐
+│ [←]  WiFi 4/4               │
+│                             │
+│ Status: Connected           │
+│ SSID: MyNetwork             │
+│ IP: 192.168.1.100           │
+│ http://filmdeveloper.local  │
+│                             │
+│    [  Reset WiFi  ]         │
 └─────────────────────────────┘
 ```
 
@@ -264,6 +324,8 @@ Connect at 115200 baud to see:
 - Physical button press events
 - Screen rotation changes
 - Touch events and button presses
+- WiFi connection status and IP address
+- Web server requests
 
 ## Customization
 
