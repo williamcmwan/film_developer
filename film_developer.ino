@@ -368,126 +368,22 @@ const char* getMenuPageHTML() {
   static char html[1500];
   
   snprintf(html, sizeof(html), R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Film Developer</title>
-  <style>
-    body { font-family: Arial; background: #000; color: white; margin: 0; padding: 20px; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-    .container { max-width: 320px; width: 100%%; text-align: center; }
-    h1 { color: white; font-size: 28px; margin-bottom: 10px; }
-    .version { color: #888; font-size: 14px; margin-bottom: 20px; }
-    .menu-btn { display: block; width: 100%%; padding: 20px; margin-bottom: 15px; border: none; border-radius: 8px; color: white; font-size: 18px; cursor: pointer; text-decoration: none; box-sizing: border-box; }
-    .btn-start { background: #009600; }
-    .btn-settings { background: #646464; }
-    .menu-btn:hover { opacity: 0.9; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>Film Developer</h1>
-    <p class="version">v1.0</p>
-    <a href="/develop" class="menu-btn btn-start">Start Develop</a>
-    <a href="/settings" class="menu-btn btn-settings">Settings</a>
-  </div>
-</body>
-</html>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Film Developer</title>
+<style>*{touch-action:manipulation;-webkit-tap-highlight-color:transparent}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:20px;min-height:100vh;display:flex;align-items:center;justify-content:center}.c{max-width:320px;width:100%%;text-align:center}h1{color:#fff;font-size:28px;margin-bottom:10px}.v{color:#888;font-size:14px;margin-bottom:20px}.b{display:block;width:100%%;padding:20px;margin-bottom:15px;border:none;border-radius:8px;color:#fff;font-size:18px;text-align:center}.g{background:#090}.gr{background:#646464}</style></head>
+<body><div class="c"><h1>Film Developer</h1><p class="v">v1.0</p><button class="b g" ontouchend="location='/develop'" onclick="location='/develop'">Start Develop</button><button class="b gr" ontouchend="location='/settings'" onclick="location='/settings'">Settings</button></div></body></html>
 )rawliteral");
   
   return html;
 }
 
 const char* getDevelopPageHTML() {
-  static char html[4500];
+  static char html[2800];
   
   snprintf(html, sizeof(html), R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Film Developer - Develop</title>
-  <style>
-    body { font-family: Arial; background: #000; color: white; margin: 0; padding: 15px; }
-    .container { max-width: 320px; margin: 0 auto; }
-    .stage { display: flex; gap: 5px; margin-bottom: 20px; }
-    .stage-btn { flex: 1; padding: 12px 5px; border: none; border-radius: 5px; background: #3c3c3c; color: white; cursor: pointer; font-size: 14px; }
-    .stage-btn.active { background: #009600; }
-    .stage-btn:disabled { opacity: 0.6; }
-    .timer-row { display: flex; align-items: center; justify-content: center; gap: 15px; margin: 30px 0; }
-    .timer { font-size: 48px; font-family: monospace; min-width: 140px; text-align: center; }
-    .timer.overtime { color: #ff4444; }
-    .adj-btn { width: 50px; height: 50px; border: none; border-radius: 5px; background: #505050; color: white; font-size: 24px; cursor: pointer; }
-    .adj-btn:disabled { opacity: 0.4; }
-    .controls { display: flex; gap: 10px; }
-    .btn { flex: 1; padding: 15px; border: none; border-radius: 5px; color: white; cursor: pointer; font-size: 16px; }
-    .btn-back { background: #3c3c3c; flex: 0 0 60px; }
-    .btn-start { background: #009600; }
-    .btn-stop { background: #c86400; }
-    .btn-reset { background: #960000; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="stage" id="stages"></div>
-    <div class="timer-row">
-      <button class="adj-btn" id="downBtn" onclick="adjustTime(-5)">&darr;</button>
-      <div class="timer" id="timer">00:00</div>
-      <button class="adj-btn" id="upBtn" onclick="adjustTime(5)">&uarr;</button>
-    </div>
-    <div class="controls" id="controls"></div>
-  </div>
-  <script>
-    let running = false;
-    let overtime = false;
-    const stageNames = ['Dev', 'Stop', 'Fix', 'Rinse'];
-    
-    function updateUI() {
-      fetch('/status').then(r => r.json()).then(data => {
-        running = data.running;
-        overtime = data.overtime;
-        
-        document.getElementById('timer').textContent = data.time;
-        document.getElementById('timer').className = 'timer' + (overtime ? ' overtime' : '');
-        
-        document.getElementById('downBtn').style.display = running ? 'none' : 'block';
-        document.getElementById('upBtn').style.display = running ? 'none' : 'block';
-        
-        const stages = document.getElementById('stages');
-        stages.innerHTML = '';
-        stageNames.forEach((name, i) => {
-          const btn = document.createElement('button');
-          btn.className = 'stage-btn' + (i === data.stage ? ' active' : '');
-          btn.textContent = name;
-          btn.disabled = running;
-          btn.onclick = () => setStage(i);
-          stages.appendChild(btn);
-        });
-        
-        const ctrl = document.getElementById('controls');
-        if (running) {
-          ctrl.innerHTML = '<button class="btn btn-stop" style="width:100%%" onclick="stopTimer()">Stop</button>';
-        } else {
-          ctrl.innerHTML = '<button class="btn btn-back" onclick="location.href=\'/\'">&larr;</button>' +
-            '<button class="btn btn-start" onclick="startTimer()">Start</button>' +
-            '<button class="btn btn-reset" onclick="resetTimer()">Reset</button>';
-        }
-      });
-    }
-    
-    function startTimer() { fetch('/start-dev').then(() => updateUI()); }
-    function stopTimer() { fetch('/stop').then(() => updateUI()); }
-    function resetTimer() { fetch('/reset').then(() => updateUI()); }
-    function setStage(s) { fetch('/stage?s=' + s).then(() => updateUI()); }
-    function adjustTime(delta) { fetch('/adjust?d=' + delta).then(() => updateUI()); }
-    
-    updateUI();
-    setInterval(updateUI, 1000);
-  </script>
-</body>
-</html>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"><title>Develop</title>
+<style>*{-webkit-tap-highlight-color:transparent;touch-action:manipulation}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:15px}.c{max-width:320px;margin:0 auto}.st{display:flex;gap:5px;margin-bottom:20px}.st button{flex:1;padding:12px 5px;border:none;border-radius:5px;background:#3c3c3c;color:#fff;font-size:14px}.st button.a{background:#090}.st button:disabled{opacity:.6}.tr{display:flex;align-items:center;justify-content:center;gap:15px;margin:30px 0}.tm{font-size:48px;font-family:monospace;min-width:140px;text-align:center}.tm.ot{color:#f44}.ab{width:50px;height:50px;border:none;border-radius:5px;background:#505050;color:#fff;font-size:24px}.ct{display:flex;gap:10px}.btn{flex:1;padding:15px;border:none;border-radius:5px;color:#fff;font-size:16px}.bk{background:#3c3c3c;flex:0 0 60px}.go{background:#090}.sp{background:#c86400}.rs{background:#900}</style></head>
+<body><div class="c"><div class="st" id="st"></div><div class="tr"><button class="ab" id="dn" onclick="adj(-5)">&darr;</button><div class="tm" id="tm">00:00</div><button class="ab" id="up" onclick="adj(5)">&uarr;</button></div><div class="ct" id="ct"></div></div>
+<script>let r=0,o=0;const sn=['Dev','Stop','Fix','Rinse'];function u(){fetch('/status').then(x=>x.json()).then(d=>{r=d.running;o=d.overtime;document.getElementById('tm').textContent=d.time;document.getElementById('tm').className='tm'+(o?' ot':'');document.getElementById('dn').style.display=r?'none':'block';document.getElementById('up').style.display=r?'none':'block';let s=document.getElementById('st');s.innerHTML='';sn.forEach((n,i)=>{let b=document.createElement('button');b.className=i===d.stage?'a':'';b.textContent=n;b.disabled=r;b.onclick=()=>ss(i);s.appendChild(b)});let c=document.getElementById('ct');c.innerHTML=r?'<button class="btn sp" style="width:100%%" onclick="sp()">Stop</button>':'<button class="btn bk" onclick="location.href=\'/\'">&larr;</button><button class="btn go" onclick="go()">Start</button><button class="btn rs" onclick="rs()">Reset</button>'})}function go(){fetch('/start-dev').then(u)}function sp(){fetch('/stop').then(u)}function rs(){fetch('/reset').then(u)}function ss(i){fetch('/stage?s='+i).then(u)}function adj(d){fetch('/adjust?d='+d).then(u)}u();setInterval(u,1000)</script></body></html>
 )rawliteral");
   
   return html;
@@ -497,53 +393,12 @@ const char* getConfigPageHTML() {
   static char html[2500];
   
   snprintf(html, sizeof(html), R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Film Developer - WiFi Setup</title>
-  <style>
-    body { font-family: Arial; background: #000; color: white; margin: 0; padding: 15px; }
-    .container { max-width: 320px; margin: 0 auto; }
-    .back { margin-bottom: 15px; }
-    .back a { color: #888; text-decoration: none; font-size: 14px; }
-    h1 { text-align: center; color: white; font-size: 20px; }
-    .form-group { margin-bottom: 15px; }
-    label { display: block; margin-bottom: 5px; font-size: 14px; }
-    input { width: 100%%; padding: 10px; border: 1px solid #444; border-radius: 5px; background: #333; color: white; box-sizing: border-box; }
-    .btn { width: 100%%; padding: 15px; border: none; border-radius: 5px; background: #009600; color: white; cursor: pointer; font-size: 16px; margin-top: 10px; }
-    .btn:hover { background: #007800; }
-    .info { text-align: center; color: #888; margin-top: 20px; font-size: 12px; }
-    .current { background: #333; padding: 12px; border-radius: 5px; margin-bottom: 15px; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="back"><a href="/settings">&larr; Back to Settings</a></div>
-    <h1>WiFi Setup</h1>
-    <div class="current">
-      <p>SSID: <strong>%s</strong></p>
-      <p>Status: <strong>%s</strong></p>
-    </div>
-    <form action="/save-wifi" method="POST">
-      <div class="form-group">
-        <label>WiFi Network Name (SSID)</label>
-        <input type="text" name="ssid" required maxlength="32">
-      </div>
-      <div class="form-group">
-        <label>Password</label>
-        <input type="password" name="password" maxlength="64">
-      </div>
-      <button type="submit" class="btn">Save and Connect</button>
-    </form>
-    <div class="info">
-      <p>Device will restart and connect to your WiFi.</p>
-      <p>Access via: http://filmdeveloper.local</p>
-    </div>
-  </div>
-</body>
-</html>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WiFi Setup</title>
+<style>*{touch-action:manipulation;-webkit-tap-highlight-color:transparent}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:15px}.c{max-width:320px;margin:0 auto}.bk{color:#888;font-size:16px;margin-bottom:15px;display:inline-block;padding:10px 0}h1{text-align:center;color:#fff;font-size:20px}.fg{margin-bottom:15px}label{display:block;margin-bottom:5px;font-size:14px}input{width:100%%;padding:10px;border:1px solid #444;border-radius:5px;background:#333;color:#fff;box-sizing:border-box}.btn{width:100%%;padding:15px;border:none;border-radius:5px;background:#090;color:#fff;font-size:16px;margin-top:10px}.info{text-align:center;color:#888;margin-top:20px;font-size:12px}.cur{background:#333;padding:12px;border-radius:5px;margin-bottom:15px;font-size:14px}</style></head>
+<body><div class="c"><span class="bk" ontouchend="location='/settings'" onclick="location='/settings'">&larr; Back to Settings</span><h1>WiFi Setup</h1>
+<div class="cur"><p>SSID: <strong>%s</strong></p><p>Status: <strong>%s</strong></p></div>
+<form action="/save-wifi" method="POST"><div class="fg"><label>WiFi Network (SSID)</label><input type="text" name="ssid" required maxlength="32"></div><div class="fg"><label>Password</label><input type="password" name="password" maxlength="64"></div><button type="submit" class="btn">Save and Connect</button></form>
+<div class="info"><p>Device will restart and connect to your WiFi.</p><p>http://filmdeveloper.local</p></div></div></body></html>
 )rawliteral", 
     wifiConfig.configured ? wifiConfig.ssid : "Not configured",
     wifiConnected ? "Connected" : (apMode ? "AP Mode" : "Disconnected"));
@@ -552,120 +407,26 @@ const char* getConfigPageHTML() {
 }
 
 const char* getSettingsPageHTML() {
-  static char html[6500];
+  static char html[4000];
   
   snprintf(html, sizeof(html), R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Film Developer - Settings</title>
-  <style>
-    body { font-family: Arial; background: #000; color: white; margin: 0; padding: 15px; }
-    .container { max-width: 360px; margin: 0 auto; }
-    h1 { text-align: center; color: white; margin-bottom: 10px; font-size: 22px; }
-    .back { margin-bottom: 15px; }
-    .back a { color: #888; text-decoration: none; font-size: 16px; }
-    .setting { display: flex; align-items: center; justify-content: space-between; padding: 14px; background: #333; border-radius: 8px; margin-bottom: 10px; }
-    .setting-name { font-size: 16px; }
-    .setting-controls { display: flex; align-items: center; gap: 12px; }
-    .setting-value { font-size: 20px; font-family: monospace; min-width: 60px; text-align: center; }
-    .adj-btn { width: 44px; height: 44px; border: none; border-radius: 8px; background: #505050; color: white; font-size: 22px; cursor: pointer; }
-    .adj-btn:active { background: #666; }
-    .toggle { display: flex; align-items: center; justify-content: space-between; padding: 14px; background: #333; border-radius: 8px; margin-bottom: 10px; }
-    .switch { position: relative; width: 52px; height: 28px; }
-    .switch input { opacity: 0; width: 0; height: 0; }
-    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: #555; border-radius: 28px; transition: .3s; }
-    .slider:before { position: absolute; content: ""; height: 22px; width: 22px; left: 3px; bottom: 3px; background: white; border-radius: 50%%; transition: .3s; }
-    input:checked + .slider { background: #009600; }
-    input:checked + .slider:before { transform: translateX(24px); }
-    .section { color: #009600; font-size: 13px; margin: 18px 0 10px 0; text-transform: uppercase; }
-    .wifi-link { display: block; text-align: center; margin-top: 20px; padding: 14px; background: #333; border-radius: 8px; color: #009600; text-decoration: none; font-size: 16px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="back"><a href="/">&larr; Back</a></div>
-    <h1>Settings</h1>
-    
-    <div class="section">Stage Times</div>
-    <div class="setting">
-      <span class="setting-name">Developer</span>
-      <div class="setting-controls">
-        <button class="adj-btn" onclick="adj('devTime',-5)">-</button>
-        <span class="setting-value" id="devTime">%02d:%02d</span>
-        <button class="adj-btn" onclick="adj('devTime',5)">+</button>
-      </div>
-    </div>
-    <div class="setting">
-      <span class="setting-name">Stop Bath</span>
-      <div class="setting-controls">
-        <button class="adj-btn" onclick="adj('stopTime',-5)">-</button>
-        <span class="setting-value" id="stopTime">%02d:%02d</span>
-        <button class="adj-btn" onclick="adj('stopTime',5)">+</button>
-      </div>
-    </div>
-    <div class="setting">
-      <span class="setting-name">Fixer</span>
-      <div class="setting-controls">
-        <button class="adj-btn" onclick="adj('fixTime',-5)">-</button>
-        <span class="setting-value" id="fixTime">%02d:%02d</span>
-        <button class="adj-btn" onclick="adj('fixTime',5)">+</button>
-      </div>
-    </div>
-    <div class="setting">
-      <span class="setting-name">Rinse</span>
-      <div class="setting-controls">
-        <button class="adj-btn" onclick="adj('rinseTime',-5)">-</button>
-        <span class="setting-value" id="rinseTime">%02d:%02d</span>
-        <button class="adj-btn" onclick="adj('rinseTime',5)">+</button>
-      </div>
-    </div>
-    
-    <div class="section">Motor</div>
-    <div class="setting">
-      <span class="setting-name">Reverse</span>
-      <div class="setting-controls">
-        <button class="adj-btn" onclick="adj('reverseTime',-5)">-</button>
-        <span class="setting-value" id="reverseTime">%02d:%02d</span>
-        <button class="adj-btn" onclick="adj('reverseTime',5)">+</button>
-      </div>
-    </div>
-    <div class="setting">
-      <span class="setting-name">Speed</span>
-      <div class="setting-controls">
-        <button class="adj-btn" onclick="adj('speed',-5)">-</button>
-        <span class="setting-value" id="speed">%d%%</span>
-        <button class="adj-btn" onclick="adj('speed',5)">+</button>
-      </div>
-    </div>
-    <div class="setting">
-      <span class="setting-name">OT Speed</span>
-      <div class="setting-controls">
-        <button class="adj-btn" onclick="adj('overtimeSpeed',-1)">-</button>
-        <span class="setting-value" id="overtimeSpeed">%d%%</span>
-        <button class="adj-btn" onclick="adj('overtimeSpeed',1)">+</button>
-      </div>
-    </div>
-    
-    <div class="section">Display</div>
-    <div class="toggle">
-      <span class="setting-name">Rotate 180</span>
-      <label class="switch">
-        <input type="checkbox" id="rotateScreen" %s onchange="toggleRotate()">
-        <span class="slider"></span>
-      </label>
-    </div>
-    
-    <a href="/config" class="wifi-link">Setup WiFi</a>
-  </div>
-  <script>
-    function adj(s,d){fetch('/setting-adj?s='+s+'&d='+d).then(r=>r.json()).then(data=>{if(data.value!==undefined){const el=document.getElementById(s);if(s==='speed'||s==='overtimeSpeed'){el.textContent=data.value+'%%';}else{const m=Math.floor(data.value/60);const sec=data.value%%60;el.textContent=String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0');}}});}
-    function toggleRotate(){fetch('/setting-rotate?v='+(document.getElementById('rotateScreen').checked?'1':'0'));}
-  </script>
-</body>
-</html>
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"><title>Settings</title>
+<style>*{-webkit-tap-highlight-color:transparent;touch-action:manipulation}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:15px}.c{max-width:360px;margin:0 auto}.h{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}.h h1{margin:0;font-size:20px}.b{color:#888;text-decoration:none;font-size:18px;padding:10px 15px;margin:-10px -15px}.r{display:flex;align-items:center;justify-content:space-between;padding:12px;background:#333;border-radius:8px;margin-bottom:8px}.n{font-size:18px}.ct{display:flex;align-items:center;gap:8px}.v{font-size:22px;font-family:monospace;min-width:65px;text-align:center}button{width:48px;height:48px;border:none;border-radius:8px;background:#505050;color:#fff;font-size:24px}button:active{background:#707070}.sw{position:relative;width:56px;height:32px}.sw input{opacity:0;width:0;height:0}.sl{position:absolute;cursor:pointer;inset:0;background:#555;border-radius:32px;transition:.2s}.sl:before{position:absolute;content:"";height:26px;width:26px;left:3px;bottom:3px;background:#fff;border-radius:50%%;transition:.2s}input:checked+.sl{background:#090}input:checked+.sl:before{transform:translateX(24px)}.s{color:#090;font-size:12px;margin:15px 0 8px;text-transform:uppercase}.w{display:block;text-align:center;margin-top:20px;padding:16px;background:#333;border-radius:8px;color:#090;text-decoration:none;font-size:18px}</style></head>
+<body><div class="c"><div class="h"><span class="b" ontouchend="location='/'" onclick="location='/'">&larr; Back</span><h1>Settings</h1><div style="width:70px"></div></div>
+<div class="s">Stage Times</div>
+<div class="r"><span class="n">Developer</span><div class="ct"><button onclick="a('devTime',-5)">-</button><span class="v" id="devTime">%02d:%02d</span><button onclick="a('devTime',5)">+</button></div></div>
+<div class="r"><span class="n">Stop Bath</span><div class="ct"><button onclick="a('stopTime',-5)">-</button><span class="v" id="stopTime">%02d:%02d</span><button onclick="a('stopTime',5)">+</button></div></div>
+<div class="r"><span class="n">Fixer</span><div class="ct"><button onclick="a('fixTime',-5)">-</button><span class="v" id="fixTime">%02d:%02d</span><button onclick="a('fixTime',5)">+</button></div></div>
+<div class="r"><span class="n">Rinse</span><div class="ct"><button onclick="a('rinseTime',-5)">-</button><span class="v" id="rinseTime">%02d:%02d</span><button onclick="a('rinseTime',5)">+</button></div></div>
+<div class="s">Motor</div>
+<div class="r"><span class="n">Reverse</span><div class="ct"><button onclick="a('reverseTime',-5)">-</button><span class="v" id="reverseTime">%02d:%02d</span><button onclick="a('reverseTime',5)">+</button></div></div>
+<div class="r"><span class="n">Speed</span><div class="ct"><button onclick="a('speed',-5)">-</button><span class="v" id="speed">%d%%</span><button onclick="a('speed',5)">+</button></div></div>
+<div class="r"><span class="n">OT Speed</span><div class="ct"><button onclick="a('overtimeSpeed',-1)">-</button><span class="v" id="overtimeSpeed">%d%%</span><button onclick="a('overtimeSpeed',1)">+</button></div></div>
+<div class="s">Display</div>
+<div class="r"><span class="n">Rotate 180</span><label class="sw"><input type="checkbox" id="rot" %s onchange="t()"><span class="sl"></span></label></div>
+<div class="w" ontouchend="location='/config'" onclick="location='/config'">Setup WiFi</div></div>
+<script>function a(s,d){fetch('/setting-adj?s='+s+'&d='+d).then(r=>r.json()).then(x=>{if(x.value!==undefined){let e=document.getElementById(s);e.textContent=(s==='speed'||s==='overtimeSpeed')?x.value+'%%':String(Math.floor(x.value/60)).padStart(2,'0')+':'+String(x.value%%60).padStart(2,'0')}})}function t(){fetch('/setting-rotate?v='+(document.getElementById('rot').checked?'1':'0'))}</script>
+</body></html>
 )rawliteral",
     settings.devTime / 60, settings.devTime % 60,
     settings.stopTime / 60, settings.stopTime % 60,
@@ -679,17 +440,24 @@ const char* getSettingsPageHTML() {
   return html;
 }
 
+void sendHTML(const char* html) {
+  server.send(200, "text/html", html);
+}
+
 // Web server handlers
 void handleRoot() {
   if (apMode && !wifiConfig.configured) {
-    server.send(200, "text/html", getConfigPageHTML());
+    sendHTML(getConfigPageHTML());
   } else {
-    server.send(200, "text/html", getMenuPageHTML());
+    sendHTML(getMenuPageHTML());
   }
 }
 
 void handleDevelop() {
-  // Initialize stage times from settings when entering develop screen
+  // Send HTML first for fast response
+  sendHTML(getDevelopPageHTML());
+  
+  // Then initialize stage times from settings
   stageTime[DEV] = settings.devTime;
   stageTime[STOP_BATH] = settings.stopTime;
   stageTime[FIX] = settings.fixTime;
@@ -699,7 +467,7 @@ void handleDevelop() {
   timerRunning = false;
   isOvertime = false;
   
-  // Navigate touchscreen to develop screen
+  // Navigate touchscreen to develop screen (after response sent)
   if (developScreen != NULL) {
     showScreen(developScreen);
     updateTimerDisplay();
@@ -708,11 +476,10 @@ void handleDevelop() {
   }
   
   Serial.println("[WEB] Entered develop screen");
-  server.send(200, "text/html", getDevelopPageHTML());
 }
 
 void handleConfig() {
-  server.send(200, "text/html", getConfigPageHTML());
+  sendHTML(getConfigPageHTML());
 }
 
 void handleSaveWiFi() {
@@ -781,6 +548,8 @@ void handleStatus() {
 }
 
 void handleStart() {
+  server.send(200, "text/plain", "OK");
+  
   if (!timerRunning) {
     timerRunning = true;
     isOvertime = false;
@@ -791,11 +560,12 @@ void handleStart() {
     updateTimerDisplay();
     Serial.println("[WEB] Timer started");
   }
-  server.send(200, "text/plain", "OK");
 }
 
 // Start timer from develop screen (web)
 void handleStartDev() {
+  server.send(200, "text/plain", "OK");
+  
   if (!timerRunning) {
     timerRunning = true;
     isOvertime = false;
@@ -813,10 +583,11 @@ void handleStartDev() {
     
     Serial.println("[WEB] Timer started");
   }
-  server.send(200, "text/plain", "OK");
 }
 
 void handleStop() {
+  server.send(200, "text/plain", "OK");
+  
   if (timerRunning) {
     timerRunning = false;
     stopMotor();
@@ -837,10 +608,11 @@ void handleStop() {
     updateStageButtons();
     Serial.println("[WEB] Timer stopped");
   }
-  server.send(200, "text/plain", "OK");
 }
 
 void handleReset() {
+  server.send(200, "text/plain", "OK");
+  
   if (!timerRunning) {
     isOvertime = false;
     switch(currentStage) {
@@ -853,10 +625,11 @@ void handleReset() {
     updateTimerDisplay();
     Serial.println("[WEB] Timer reset");
   }
-  server.send(200, "text/plain", "OK");
 }
 
 void handleStage() {
+  server.send(200, "text/plain", "OK");
+  
   if (!timerRunning && server.hasArg("s")) {
     int stage = server.arg("s").toInt();
     if (stage >= 0 && stage <= 3) {
@@ -875,10 +648,11 @@ void handleStage() {
       Serial.println(stage);
     }
   }
-  server.send(200, "text/plain", "OK");
 }
 
 void handleAdjust() {
+  server.send(200, "text/plain", "OK");
+  
   if (!timerRunning && server.hasArg("d")) {
     int delta = server.arg("d").toInt();
     currentTime += delta;
@@ -889,7 +663,6 @@ void handleAdjust() {
     Serial.print("[WEB] Time adjusted by: ");
     Serial.println(delta);
   }
-  server.send(200, "text/plain", "OK");
 }
 
 void handleNotFound() {
@@ -903,7 +676,7 @@ void handleNotFound() {
 }
 
 void handleSettings() {
-  server.send(200, "text/html", getSettingsPageHTML());
+  sendHTML(getSettingsPageHTML());
 }
 
 void handleSettingAdj() {
@@ -966,14 +739,15 @@ void handleSettingAdj() {
 
 void handleSettingRotate() {
   if (server.hasArg("v")) {
+    server.send(200, "text/plain", "OK");
+    
     settings.rotateScreen = server.arg("v") == "1";
     saveSettings();
     applyScreenRotation();
     lv_obj_invalidate(lv_scr_act());
     lv_refr_now(NULL);
-    server.send(200, "text/plain", "OK");
     Serial.print("[WEB] Screen rotation set to: ");
-    Serial.println(settings.rotateScreen ? "180°" : "0°");
+    Serial.println(settings.rotateScreen ? "180" : "0");
   } else {
     server.send(400, "text/plain", "Missing parameter");
   }
@@ -2081,15 +1855,16 @@ void setup() {
 }
 
 void loop() {
-  lv_timer_handler();
-  
-  // Handle web server requests
+  // Handle web server requests first for faster response
   server.handleClient();
   
   // Handle DNS for captive portal in AP mode
   if (apMode) {
     dnsServer.processNextRequest();
   }
+  
+  // Then handle LVGL
+  lv_timer_handler();
   
   // Check physical button (active LOW with pull-up)
   if (digitalRead(buttonPin) == LOW) {
