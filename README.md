@@ -4,10 +4,11 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 
 ## Features
 
-- **Multi-Screen Interface**: Splash screen, main menu, settings (4 pages), and development screen
+- **Multi-Screen Interface**: Splash screen, main menu, settings (4 pages), development screen, and profiles screen
 - **WiFi Connectivity**: Connect to your home network or use AP mode for configuration
 - **Web Interface**: Control the device from any browser via http://filmdeveloper.local
 - **mDNS Support**: Easy access without knowing the IP address
+- **Development Profiles**: Save and load multiple development profiles via web interface
 - **4-Stage Development Process**: Developer, Stop Bath, Fixer, and Rinse stages
 - **Countdown Timer**: Large 48pt font MM:SS format with adjustable time (5-second intervals)
 - **Stage Selection**: Click to switch between stages with visual feedback
@@ -117,19 +118,36 @@ GND                 → Physical button (other side)
 
 ### Main Menu
 1. Power on the device - splash screen appears for 3 seconds
-2. Main menu displays two options:
+2. Main menu displays three options:
    - **Start Develop**: Begin the development process
    - **Settings**: Configure timing and motor speed
+   - **Profiles**: View and apply saved development profiles
+
+### Profiles
+Access saved development profiles from the main menu or web interface:
+
+**Touchscreen:**
+- Tap "Profiles" on main menu
+- If no profiles exist, shows instructions to add profiles via web interface
+- When profiles exist, shows scrollable list with "Use" button for each
+- Tapping "Use" applies the profile settings and shows confirmation toast
+
+**Web Interface (http://filmdeveloper.local/profiles):**
+- View all saved profiles with timing details
+- Add new profiles with custom name and timing settings
+- Edit existing profiles
+- Delete profiles
+- Apply profiles to current settings
 
 ### Settings
-Configure development parameters across three pages:
+Configure development parameters across four pages:
 
-**Page 1/3:**
+**Page 1/4:**
 - Developer time (default: 7:00)
 - Stop Bath time (default: 1:00)
 - Fixer time (default: 5:00)
 
-**Page 2/3:**
+**Page 2/4:**
 - Rinse time (default: 10:00)
 - Reverse time (default: 0:10) - interval for automatic motor direction reversal
 - Motor speed (default: 0%, range: 0-100%)
@@ -201,11 +219,11 @@ Once configured, the device connects to your WiFi network automatically on boot.
 
 Access the web interface at: **http://filmdeveloper.local**
 
-The web interface provides the same controls as the touchscreen:
-- View and select development stages (Dev, Stop, Fix, Rinse)
-- Start/Stop/Reset the timer
-- Adjust time with +/- buttons
-- Real-time status updates every second
+The web interface provides:
+- **Home**: Main menu with links to Develop, Settings, and Profiles
+- **Develop**: View and control development stages, start/stop/reset timer
+- **Settings**: Configure all timing and motor parameters
+- **Profiles**: Manage development profiles (add, edit, delete, apply)
 
 ### Reset WiFi Settings
 To reconfigure WiFi or switch networks:
@@ -225,15 +243,34 @@ To reconfigure WiFi or switch networks:
 ### Main Menu
 ```
 ┌─────────────────────────────┐
-│    Film Developer           │
+│       Film Developer        │
 │                             │
 │    ┌─────────────────┐      │
 │    │  Start Develop  │      │
 │    └─────────────────┘      │
-│                             │
 │    ┌─────────────────┐      │
 │    │    Settings     │      │
 │    └─────────────────┘      │
+│    ┌─────────────────┐      │
+│    │    Profiles     │      │
+│    └─────────────────┘      │
+└─────────────────────────────┘
+```
+
+### Profiles Screen
+```
+┌─────────────────────────────┐
+│ [←]      Profiles           │
+│                             │
+│ ┌─────────────────────────┐ │
+│ │ HP5+ Standard    [Use]  │ │
+│ └─────────────────────────┘ │
+│ ┌─────────────────────────┐ │
+│ │ Tri-X Push 1     [Use]  │ │
+│ └─────────────────────────┘ │
+│ ┌─────────────────────────┐ │
+│ │ Delta 100        [Use]  │ │
+│ └─────────────────────────┘ │
 └─────────────────────────────┘
 ```
 
@@ -326,6 +363,7 @@ Connect at 115200 baud to see:
 - Touch events and button presses
 - WiFi connection status and IP address
 - Web server requests
+- Profile operations (load, save, apply)
 
 ## Customization
 
@@ -386,9 +424,27 @@ int btnSpacing = 5;
 ```
 
 ### Display Rotation
-- Use the "Rotate 180°" toggle in Settings 3/3 for runtime rotation
+- Use the "Rotate 180°" toggle in Settings 3/4 for runtime rotation
 - Or change `LCD_ROTATION` value (0-3) in code for different default orientations
 - Rotation setting persists across reboots
+
+## Version History
+
+### v1.1
+- Added development profiles feature (save/load via web interface)
+- Added Profiles screen on touchscreen with "Use" button for each profile
+- Added feedback toast when applying a profile
+- Improved main menu layout with smaller title
+- Shows instruction message when no profiles exist
+
+### v1.0
+- Initial release with full development timer functionality
+- 4-stage development process with countdown timer
+- PWM motor control with automatic reversal
+- Overtime mode with buzzer alerts
+- Physical button support
+- WiFi connectivity with web interface
+- Persistent settings storage
 
 ## License
 

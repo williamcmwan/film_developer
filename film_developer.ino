@@ -70,6 +70,19 @@ struct WiFiConfig {
   bool configured;
 } wifiConfig;
 
+// Development profiles
+#define MAX_PROFILES 10
+struct Profile {
+  char name[24];
+  int devTime;
+  int stopTime;
+  int fixTime;
+  int rinseTime;
+  bool used;
+};
+Profile profiles[MAX_PROFILES];
+int profileCount = 0;
+
 bool wifiConnected = false;
 bool apMode = true;
 const char* AP_SSID = "Film-Developer";
@@ -94,6 +107,8 @@ lv_obj_t *settingsScreen2;
 lv_obj_t *settingsScreen3;
 lv_obj_t *settingsScreen4;  // WiFi settings
 lv_obj_t *developScreen;
+lv_obj_t *profilesScreen;
+lv_obj_t *profilesBtn;  // Main menu profiles button (shown when profiles exist)
 
 // Settings structure
 struct Settings {
@@ -135,6 +150,8 @@ void updateControlButtons();
 void updateSettingsLabels();
 void applyScreenRotation();
 void showScreen(lv_obj_t *screen);
+void updateMainMenuProfilesBtn();
+void updateProfilesList();
 
 // Display flush callback
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
@@ -347,6 +364,54 @@ void resetWiFiSettings() {
   Serial.println("[WIFI] Settings reset");
 }
 
+// Load profiles from flash
+void loadProfiles() {
+  preferences.begin("profiles", true);
+  profileCount = preferences.getInt("count", 0);
+  for (int i = 0; i < profileCount && i < MAX_PROFILES; i++) {
+    String key = "p" + String(i);
+    String data = preferences.getString(key.c_str(), "");
+    if (data.length() > 0) {
+      // Format: name|devTime|stopTime|fixTime|rinseTime
+      int idx = 0;
+      int lastIdx = 0;
+      idx = data.indexOf('|');
+      strncpy(profiles[i].name, data.substring(0, idx).c_str(), 23);
+      lastIdx = idx + 1;
+      idx = data.indexOf('|', lastIdx);
+      profiles[i].devTime = data.substring(lastIdx, idx).toInt();
+      lastIdx = idx + 1;
+      idx = data.indexOf('|', lastIdx);
+      profiles[i].stopTime = data.substring(lastIdx, idx).toInt();
+      lastIdx = idx + 1;
+      idx = data.indexOf('|', lastIdx);
+      profiles[i].fixTime = data.substring(lastIdx, idx).toInt();
+      profiles[i].rinseTime = data.substring(idx + 1).toInt();
+      profiles[i].used = true;
+    }
+  }
+  preferences.end();
+  Serial.print("[PROFILES] Loaded ");
+  Serial.println(profileCount);
+}
+
+// Save profiles to flash
+void saveProfiles() {
+  preferences.begin("profiles", false);
+  preferences.putInt("count", profileCount);
+  for (int i = 0; i < profileCount && i < MAX_PROFILES; i++) {
+    String key = "p" + String(i);
+    String data = String(profiles[i].name) + "|" + 
+                  String(profiles[i].devTime) + "|" +
+                  String(profiles[i].stopTime) + "|" +
+                  String(profiles[i].fixTime) + "|" +
+                  String(profiles[i].rinseTime);
+    preferences.putString(key.c_str(), data);
+  }
+  preferences.end();
+  Serial.println("[PROFILES] Saved");
+}
+
 // Save settings to flash
 void saveSettings() {
   preferences.begin("filmdev", false);
@@ -365,12 +430,12 @@ void saveSettings() {
 
 // HTML page templates
 const char* getMenuPageHTML() {
-  static char html[1500];
+  static char html[1800];
   
   snprintf(html, sizeof(html), R"rawliteral(
 <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Film Developer</title>
-<style>*{touch-action:manipulation}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:20px;min-height:100vh;display:flex;align-items:center;justify-content:center}.c{max-width:320px;width:100%%;text-align:center}h1{color:#fff;font-size:28px;margin-bottom:10px}.v{color:#888;font-size:14px;margin-bottom:20px}.b{display:block;width:100%%;padding:20px;margin-bottom:15px;border:none;border-radius:8px;color:#fff;font-size:18px;text-align:center;transition:opacity .1s}.b:active{opacity:.7}.g{background:#090}.gr{background:#646464}</style></head>
-<body><div class="c"><h1>Film Developer</h1><p class="v">v1.0</p><button class="b g" ontouchend="location='/develop'" onclick="location='/develop'">Start Develop</button><button class="b gr" ontouchend="location='/settings'" onclick="location='/settings'">Settings</button></div></body></html>
+<style>*{touch-action:manipulation}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:20px;min-height:100vh;display:flex;align-items:center;justify-content:center}.c{max-width:320px;width:100%%;text-align:center}h1{color:#fff;font-size:28px;margin-bottom:10px}.v{color:#888;font-size:14px;margin-bottom:20px}.b{display:block;width:100%%;padding:20px;margin-bottom:15px;border:none;border-radius:8px;color:#fff;font-size:18px;text-align:center;transition:opacity .1s}.b:active{opacity:.7}.g{background:#090}.gr{background:#646464}.bl{background:#4a6fa5}</style></head>
+<body><div class="c"><h1>Film Developer</h1><p class="v">v1.0</p><button class="b g" ontouchend="location='/develop'" onclick="location='/develop'">Start Develop</button><button class="b gr" ontouchend="location='/settings'" onclick="location='/settings'">Settings</button><button class="b bl" ontouchend="location='/profiles'" onclick="location='/profiles'">Profiles</button></div></body></html>
 )rawliteral");
   
   return html;
@@ -403,6 +468,29 @@ const char* getConfigPageHTML() {
     wifiConfig.configured ? wifiConfig.ssid : "Not configured",
     apMode ? WiFi.softAPIP().toString().c_str() : (wifiConnected ? WiFi.localIP().toString().c_str() : "--"),
     wifiConnected ? "Connected" : (apMode ? "AP Mode" : "Disconnected"));
+  
+  return html;
+}
+
+const char* getProfilesPageHTML() {
+  static char html[6000];
+  
+  snprintf(html, sizeof(html), R"rawliteral(
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Profiles</title>
+<style>*{touch-action:manipulation;box-sizing:border-box}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:15px}.c{max-width:360px;margin:0 auto}.hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}.hd h1{margin:0;font-size:20px}.bk{color:#888;font-size:18px;padding:10px 15px;margin:-10px -15px}.bk:active{color:#fff}.p{background:#333;border-radius:8px;padding:12px;margin-bottom:10px}.nm{font-size:16px;font-weight:bold;margin-bottom:8px}.tm{font-size:13px;color:#aaa;margin-bottom:10px}.bt{display:flex;gap:8px}.bt button{flex:1;padding:10px;border:none;border-radius:5px;color:#fff;font-size:14px;background:#555}.bt .use{background:#090}.bt .del{background:#900}.add{display:block;width:100%%;padding:15px;border:2px dashed #555;border-radius:8px;background:transparent;color:#888;font-size:16px;text-align:center;margin-top:15px}.add:active{border-color:#888;color:#fff}.empty{text-align:center;color:#666;padding:40px 0}#form{display:none;margin-top:15px;background:#222;padding:15px;border-radius:8px}#form input{width:100%%;padding:10px;border:1px solid #444;border-radius:5px;background:#333;color:#fff;margin-bottom:10px}.row{display:flex;align-items:center;gap:10px;margin-bottom:8px}.row span:first-child{flex:1}.row button{width:40px;height:40px;border:none;border-radius:5px;background:#505050;color:#fff;font-size:18px}.row .val{width:55px;text-align:center;font-family:monospace}.sv{display:flex;gap:10px;margin-top:10px}.sv button{flex:1;padding:12px;border:none;border-radius:5px;color:#fff;font-size:14px}.sv .ok{background:#090}.sv .no{background:#555}</style></head>
+<body><div class="c"><div class="hd"><span class="bk" ontouchend="location='/'" onclick="location='/'">&larr; Back</span><h1>Profiles</h1><div style="width:70px"></div></div>
+<div id="list"></div>
+<button class="add" onclick="showAdd()">+ Add Profile</button>
+<div id="form">
+<input type="text" id="pname" placeholder="Profile Name" maxlength="23">
+<div class="row"><span>Developer</span><button onclick="adj('dev',-5)">-</button><span class="val" id="dev">07:00</span><button onclick="adj('dev',5)">+</button></div>
+<div class="row"><span>Stop Bath</span><button onclick="adj('stop',-5)">-</button><span class="val" id="stop">01:00</span><button onclick="adj('stop',5)">+</button></div>
+<div class="row"><span>Fixer</span><button onclick="adj('fix',-5)">-</button><span class="val" id="fix">05:00</span><button onclick="adj('fix',5)">+</button></div>
+<div class="row"><span>Rinse</span><button onclick="adj('rinse',-5)">-</button><span class="val" id="rinse">10:00</span><button onclick="adj('rinse',5)">+</button></div>
+<div style="display:flex;gap:10px"><button style="flex:1;padding:12px;background:#090;border:none;border-radius:5px;color:#fff" onclick="saveP()">Save</button><button style="flex:1;padding:12px;background:#555;border:none;border-radius:5px;color:#fff" onclick="hideAdd()">Cancel</button></div>
+</div></div>
+<script>let ps=[],ed=-1,t={dev:420,stop:60,fix:300,rinse:600};function fmt(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%%60).padStart(2,'0')}function load(){fetch('/profile-list').then(r=>r.json()).then(d=>{ps=d;render()})}function render(){let h='';if(ps.length===0)h='<div class="empty">No profiles yet</div>';else ps.forEach((p,i)=>{h+='<div class="p"><div class="nm">'+p.name+'</div><div class="tm">Dev:'+fmt(p.dev)+' Stop:'+fmt(p.stop)+' Fix:'+fmt(p.fix)+' Rinse:'+fmt(p.rinse)+'</div><div class="bt"><button class="use" onclick="useP('+i+')">Use</button><button onclick="editP('+i+')">Edit</button><button class="del" onclick="delP('+i+')">Del</button></div></div>'});document.getElementById('list').innerHTML=h}function adj(f,d){t[f]+=d;if(t[f]<0)t[f]=0;if(t[f]>3600)t[f]=3600;document.getElementById(f).textContent=fmt(t[f])}function showAdd(){ed=-1;t={dev:420,stop:60,fix:300,rinse:600};document.getElementById('pname').value='';['dev','stop','fix','rinse'].forEach(f=>document.getElementById(f).textContent=fmt(t[f]));document.getElementById('form').style.display='block'}function hideAdd(){document.getElementById('form').style.display='none'}function editP(i){ed=i;t={dev:ps[i].dev,stop:ps[i].stop,fix:ps[i].fix,rinse:ps[i].rinse};document.getElementById('pname').value=ps[i].name;['dev','stop','fix','rinse'].forEach(f=>document.getElementById(f).textContent=fmt(t[f]));document.getElementById('form').style.display='block'}function saveP(){let n=document.getElementById('pname').value.trim();if(!n){alert('Enter name');return}fetch('/profile-save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idx:ed,name:n,dev:t.dev,stop:t.stop,fix:t.fix,rinse:t.rinse})}).then(()=>{hideAdd();load()})}function delP(i){if(confirm('Delete?'))fetch('/profile-del?i='+i).then(()=>load())}function useP(i){fetch('/profile-use?i='+i).then(()=>alert('Settings updated!'))}load()</script></body></html>
+)rawliteral");
   
   return html;
 }
@@ -680,6 +768,111 @@ void handleSettings() {
   sendHTML(getSettingsPageHTML());
 }
 
+void handleProfiles() {
+  sendHTML(getProfilesPageHTML());
+}
+
+void handleProfileList() {
+  String json = "[";
+  for (int i = 0; i < profileCount; i++) {
+    if (i > 0) json += ",";
+    json += "{\"name\":\"" + String(profiles[i].name) + "\",";
+    json += "\"dev\":" + String(profiles[i].devTime) + ",";
+    json += "\"stop\":" + String(profiles[i].stopTime) + ",";
+    json += "\"fix\":" + String(profiles[i].fixTime) + ",";
+    json += "\"rinse\":" + String(profiles[i].rinseTime) + "}";
+  }
+  json += "]";
+  server.send(200, "application/json", json);
+}
+
+void handleProfileSave() {
+  if (server.hasArg("plain")) {
+    String body = server.arg("plain");
+    // Parse JSON manually (simple parser)
+    int idx = -1;
+    String name = "";
+    int dev = 420, stop = 60, fix = 300, rinse = 600;
+    
+    int pos = body.indexOf("\"idx\":");
+    if (pos >= 0) idx = body.substring(pos + 6, body.indexOf(",", pos)).toInt();
+    
+    pos = body.indexOf("\"name\":\"");
+    if (pos >= 0) {
+      int end = body.indexOf("\"", pos + 8);
+      name = body.substring(pos + 8, end);
+    }
+    
+    pos = body.indexOf("\"dev\":");
+    if (pos >= 0) dev = body.substring(pos + 6, body.indexOf(",", pos)).toInt();
+    
+    pos = body.indexOf("\"stop\":");
+    if (pos >= 0) stop = body.substring(pos + 7, body.indexOf(",", pos)).toInt();
+    
+    pos = body.indexOf("\"fix\":");
+    if (pos >= 0) fix = body.substring(pos + 6, body.indexOf(",", pos)).toInt();
+    
+    pos = body.indexOf("\"rinse\":");
+    if (pos >= 0) rinse = body.substring(pos + 8, body.indexOf("}", pos)).toInt();
+    
+    if (idx >= 0 && idx < profileCount) {
+      // Update existing
+      strncpy(profiles[idx].name, name.c_str(), 23);
+      profiles[idx].devTime = dev;
+      profiles[idx].stopTime = stop;
+      profiles[idx].fixTime = fix;
+      profiles[idx].rinseTime = rinse;
+    } else if (profileCount < MAX_PROFILES) {
+      // Add new
+      strncpy(profiles[profileCount].name, name.c_str(), 23);
+      profiles[profileCount].devTime = dev;
+      profiles[profileCount].stopTime = stop;
+      profiles[profileCount].fixTime = fix;
+      profiles[profileCount].rinseTime = rinse;
+      profiles[profileCount].used = true;
+      profileCount++;
+    }
+    saveProfiles();
+    updateMainMenuProfilesBtn();
+    updateProfilesList();
+    server.send(200, "text/plain", "OK");
+  } else {
+    server.send(400, "text/plain", "No data");
+  }
+}
+
+void handleProfileDel() {
+  if (server.hasArg("i")) {
+    int idx = server.arg("i").toInt();
+    if (idx >= 0 && idx < profileCount) {
+      // Shift profiles down
+      for (int i = idx; i < profileCount - 1; i++) {
+        profiles[i] = profiles[i + 1];
+      }
+      profileCount--;
+      saveProfiles();
+      updateMainMenuProfilesBtn();
+      updateProfilesList();
+    }
+  }
+  server.send(200, "text/plain", "OK");
+}
+
+void handleProfileUse() {
+  if (server.hasArg("i")) {
+    int idx = server.arg("i").toInt();
+    if (idx >= 0 && idx < profileCount) {
+      settings.devTime = profiles[idx].devTime;
+      settings.stopTime = profiles[idx].stopTime;
+      settings.fixTime = profiles[idx].fixTime;
+      settings.rinseTime = profiles[idx].rinseTime;
+      saveSettings();
+      updateSettingsLabels();
+    }
+  }
+  server.send(200, "text/plain", "OK");
+}
+
 void handleSettingAdj() {
   if (server.hasArg("s") && server.hasArg("d")) {
     String setting = server.arg("s");
@@ -770,6 +963,11 @@ void setupWebServer() {
   server.on("/settings", handleSettings);
   server.on("/setting-adj", handleSettingAdj);
   server.on("/setting-rotate", handleSettingRotate);
+  server.on("/profiles", handleProfiles);
+  server.on("/profile-list", handleProfileList);
+  server.on("/profile-save", HTTP_POST, handleProfileSave);
+  server.on("/profile-del", handleProfileDel);
+  server.on("/profile-use", handleProfileUse);
   server.onNotFound(handleNotFound);
   server.begin();
   Serial.println("[WEB] Server started");
@@ -839,6 +1037,9 @@ void createSettingsScreen2();
 void createSettingsScreen3();
 void createSettingsScreen4();
 void createDevelopScreen();
+void createProfilesScreen();
+void updateMainMenuProfilesBtn();
+void updateProfilesList();
 void showScreen(lv_obj_t *screen);
 void updateWiFiStatusLabels();
 void updateTimerDisplay();
@@ -889,22 +1090,23 @@ void createSplashScreen() {
 // Main menu screen
 void mainMenuStartHandler(lv_event_t *e);
 void mainMenuSettingsHandler(lv_event_t *e);
+void mainMenuProfilesHandler(lv_event_t *e);
 
 void createMainMenuScreen() {
   mainMenuScreen = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(mainMenuScreen, lv_color_black(), 0);
   
-  // Title
+  // Title (smaller and higher)
   lv_obj_t *title = lv_label_create(mainMenuScreen);
   lv_label_set_text(title, "Film Developer");
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
-  lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
   
   // Start Develop button
   lv_obj_t *startBtn = lv_btn_create(mainMenuScreen);
-  lv_obj_set_size(startBtn, 200, 60);
-  lv_obj_align(startBtn, LV_ALIGN_CENTER, 0, -30);
+  lv_obj_set_size(startBtn, 200, 50);
+  lv_obj_align(startBtn, LV_ALIGN_CENTER, 0, -50);
   lv_obj_set_style_bg_color(startBtn, lv_color_make(0, 150, 0), 0);
   lv_obj_add_event_cb(startBtn, mainMenuStartHandler, LV_EVENT_CLICKED, NULL);
   
@@ -915,8 +1117,8 @@ void createMainMenuScreen() {
   
   // Settings button
   lv_obj_t *settingsBtn = lv_btn_create(mainMenuScreen);
-  lv_obj_set_size(settingsBtn, 200, 60);
-  lv_obj_align(settingsBtn, LV_ALIGN_CENTER, 0, 40);
+  lv_obj_set_size(settingsBtn, 200, 50);
+  lv_obj_align(settingsBtn, LV_ALIGN_CENTER, 0, 10);
   lv_obj_set_style_bg_color(settingsBtn, lv_color_make(100, 100, 100), 0);
   lv_obj_add_event_cb(settingsBtn, mainMenuSettingsHandler, LV_EVENT_CLICKED, NULL);
   
@@ -924,6 +1126,29 @@ void createMainMenuScreen() {
   lv_label_set_text(settingsLabel, "Settings");
   lv_obj_set_style_text_font(settingsLabel, &lv_font_montserrat_20, 0);
   lv_obj_center(settingsLabel);
+  
+  // Profiles button (always visible)
+  profilesBtn = lv_btn_create(mainMenuScreen);
+  lv_obj_set_size(profilesBtn, 200, 50);
+  lv_obj_align(profilesBtn, LV_ALIGN_CENTER, 0, 70);
+  lv_obj_set_style_bg_color(profilesBtn, lv_color_make(74, 111, 165), 0);  // Blue
+  lv_obj_add_event_cb(profilesBtn, mainMenuProfilesHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *profilesLabel = lv_label_create(profilesBtn);
+  lv_label_set_text(profilesLabel, "Profiles");
+  lv_obj_set_style_text_font(profilesLabel, &lv_font_montserrat_20, 0);
+  lv_obj_center(profilesLabel);
+}
+
+void updateMainMenuProfilesBtn() {
+  // Profiles button is now always visible, no need to hide/show
+}
+
+void mainMenuProfilesHandler(lv_event_t *e) {
+  Serial.println("[MENU] Profiles");
+  if (profilesScreen != NULL) {
+    showScreen(profilesScreen);
+  }
 }
 
 void mainMenuStartHandler(lv_event_t *e) {
@@ -1710,6 +1935,144 @@ void developBackHandler(lv_event_t *e) {
   }
 }
 
+// Profiles screen
+lv_obj_t *profilesList;
+
+void profileUseHandler(lv_event_t *e) {
+  int idx = (int)(intptr_t)lv_event_get_user_data(e);
+  if (idx >= 0 && idx < profileCount) {
+    settings.devTime = profiles[idx].devTime;
+    settings.stopTime = profiles[idx].stopTime;
+    settings.fixTime = profiles[idx].fixTime;
+    settings.rinseTime = profiles[idx].rinseTime;
+    saveSettings();
+    updateSettingsLabels();
+    Serial.print("[PROFILES] Applied profile: ");
+    Serial.println(profiles[idx].name);
+    
+    // Go back to main menu
+    if (mainMenuScreen != NULL) {
+      showScreen(mainMenuScreen);
+      
+      // Show feedback toast
+      lv_obj_t *toast = lv_obj_create(mainMenuScreen);
+      lv_obj_set_size(toast, 280, 50);
+      lv_obj_align(toast, LV_ALIGN_BOTTOM_MID, 0, -10);
+      lv_obj_set_style_bg_color(toast, lv_color_make(0, 120, 0), 0);
+      lv_obj_set_style_border_width(toast, 0, 0);
+      lv_obj_set_style_radius(toast, 8, 0);
+      lv_obj_clear_flag(toast, LV_OBJ_FLAG_SCROLLABLE);
+      
+      lv_obj_t *toastLabel = lv_label_create(toast);
+      char msg[48];
+      snprintf(msg, sizeof(msg), "Applied: %s", profiles[idx].name);
+      lv_label_set_text(toastLabel, msg);
+      lv_obj_set_style_text_color(toastLabel, lv_color_white(), 0);
+      lv_obj_set_style_text_font(toastLabel, &lv_font_montserrat_16, 0);
+      lv_obj_center(toastLabel);
+      
+      // Auto-delete toast after 2 seconds
+      lv_timer_create([](lv_timer_t *timer) {
+        lv_obj_t *obj = (lv_obj_t *)timer->user_data;
+        if (obj != NULL) lv_obj_del(obj);
+        lv_timer_del(timer);
+      }, 2000, toast);
+    }
+  }
+}
+
+void profilesBackHandler(lv_event_t *e) {
+  if (mainMenuScreen != NULL) {
+    showScreen(mainMenuScreen);
+  }
+}
+
+void updateProfilesList() {
+  if (profilesList == NULL) return;
+  
+  // Clear existing children
+  lv_obj_clean(profilesList);
+  
+  if (profileCount == 0) {
+    // Show instruction message when no profiles - centered in screen
+    lv_obj_t *msgLabel = lv_label_create(profilesList);
+    lv_label_set_text(msgLabel, "Setup WiFi and add\nprofiles using\nhttp://filmdeveloper.local\nfrom mobile browser");
+    lv_obj_set_style_text_color(msgLabel, lv_color_make(150, 150, 150), 0);
+    lv_obj_set_style_text_font(msgLabel, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_align(msgLabel, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(msgLabel, 300);
+    lv_obj_align(msgLabel, LV_ALIGN_CENTER, 0, 0);
+    return;
+  }
+  
+  for (int i = 0; i < profileCount && i < MAX_PROFILES; i++) {
+    // Container for each profile row
+    lv_obj_t *row = lv_obj_create(profilesList);
+    lv_obj_set_size(row, 290, 50);
+    lv_obj_set_style_bg_color(row, lv_color_make(50, 50, 50), 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_radius(row, 8, 0);
+    lv_obj_set_style_pad_all(row, 8, 0);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    
+    // Profile name
+    lv_obj_t *nameLabel = lv_label_create(row);
+    lv_label_set_text(nameLabel, profiles[i].name);
+    lv_obj_set_style_text_color(nameLabel, lv_color_white(), 0);
+    lv_obj_set_style_text_font(nameLabel, &lv_font_montserrat_16, 0);
+    lv_obj_align(nameLabel, LV_ALIGN_LEFT_MID, 0, 0);
+    
+    // Use button
+    lv_obj_t *useBtn = lv_btn_create(row);
+    lv_obj_set_size(useBtn, 60, 34);
+    lv_obj_align(useBtn, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_style_bg_color(useBtn, lv_color_make(0, 150, 0), 0);
+    lv_obj_add_event_cb(useBtn, profileUseHandler, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+    
+    lv_obj_t *useLbl = lv_label_create(useBtn);
+    lv_label_set_text(useLbl, "Use");
+    lv_obj_set_style_text_font(useLbl, &lv_font_montserrat_14, 0);
+    lv_obj_center(useLbl);
+  }
+}
+
+void createProfilesScreen() {
+  profilesScreen = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(profilesScreen, lv_color_black(), 0);
+  
+  // Back button
+  lv_obj_t *backBtn = lv_btn_create(profilesScreen);
+  lv_obj_set_size(backBtn, 50, 40);
+  lv_obj_set_pos(backBtn, 10, 5);
+  lv_obj_set_style_bg_color(backBtn, lv_color_make(60, 60, 60), 0);
+  lv_obj_add_event_cb(backBtn, profilesBackHandler, LV_EVENT_CLICKED, NULL);
+  
+  lv_obj_t *backLabel = lv_label_create(backBtn);
+  lv_label_set_text(backLabel, LV_SYMBOL_LEFT);
+  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_18, 0);
+  lv_obj_center(backLabel);
+  
+  // Title
+  lv_obj_t *title = lv_label_create(profilesScreen);
+  lv_label_set_text(title, "Profiles");
+  lv_obj_set_style_text_color(title, lv_color_white(), 0);
+  lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+  
+  // Scrollable list container
+  profilesList = lv_obj_create(profilesScreen);
+  lv_obj_set_size(profilesList, 300, 180);
+  lv_obj_set_pos(profilesList, 10, 50);
+  lv_obj_set_style_bg_color(profilesList, lv_color_black(), 0);
+  lv_obj_set_style_border_width(profilesList, 0, 0);
+  lv_obj_set_style_pad_all(profilesList, 0, 0);
+  lv_obj_set_flex_flow(profilesList, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(profilesList, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(profilesList, 8, 0);
+  
+  updateProfilesList();
+}
+
 // Physical button handler
 void handlePhysicalButton() {
   lv_obj_t *currentScreen = lv_scr_act();
@@ -1801,6 +2164,7 @@ void setup() {
   // Load settings first (before initializing touch/display rotation)
   loadSettings();
   loadWiFiSettings();
+  loadProfiles();
 
   // Initialize touch with saved rotation
   touchWire.begin(TOUCH_SDA, TOUCH_SCL);
@@ -1838,6 +2202,10 @@ void setup() {
   createSettingsScreen3();
   createSettingsScreen4();
   createDevelopScreen();
+  createProfilesScreen();
+  
+  // Update profiles button visibility based on loaded profiles
+  updateMainMenuProfilesBtn();
 
   // Show splash screen
   showScreen(splashScreen);
