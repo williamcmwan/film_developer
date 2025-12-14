@@ -6,6 +6,7 @@
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <DNSServer.h>
+#include <esp_mac.h>
 #include "bsp_cst816.h"
 
 #define PIN_NUM_LCD_SCLK 39
@@ -85,14 +86,14 @@ int profileCount = 0;
 
 bool wifiConnected = false;
 bool apMode = true;
-const char* AP_SSID = "Film-Developer";
+char AP_SSID[20] = "FilmDev-XXXX";  // Will be set with MAC suffix
 const char* AP_PASS = "12345678";
 const char* MDNS_NAME = "filmdeveloper";
 
 // WiFi screen
 lv_obj_t *wifiScreen;
-lv_obj_t *wifiStatusLabel;
 lv_obj_t *wifiSSIDLabel;
+lv_obj_t *wifiPasswordLabel;
 lv_obj_t *wifiIPLabel;
 
 // LVGL display buffer
@@ -435,7 +436,7 @@ const char* getMenuPageHTML() {
   snprintf(html, sizeof(html), R"rawliteral(
 <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Film Developer</title>
 <style>*{touch-action:manipulation}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:20px;min-height:100vh;display:flex;align-items:center;justify-content:center}.c{max-width:320px;width:100%%;text-align:center}h1{color:#fff;font-size:28px;margin-bottom:10px}.v{color:#888;font-size:14px;margin-bottom:20px}.b{display:block;width:100%%;padding:20px;margin-bottom:15px;border:none;border-radius:8px;color:#fff;font-size:18px;text-align:center;transition:opacity .1s}.b:active{opacity:.7}.g{background:#090}.gr{background:#646464}.bl{background:#4a6fa5}</style></head>
-<body><div class="c"><h1>Film Developer</h1><p class="v">v1.0</p><button class="b g" ontouchend="location='/develop'" onclick="location='/develop'">Start Develop</button><button class="b gr" ontouchend="location='/settings'" onclick="location='/settings'">Settings</button><button class="b bl" ontouchend="location='/profiles'" onclick="location='/profiles'">Profiles</button></div></body></html>
+<body><div class="c"><h1>Film Developer</h1><p class="v">v1.0</p><button class="b g" ontouchstart="location='/develop'" onclick="location='/develop'">Start Develop</button><button class="b gr" ontouchstart="location='/settings'" onclick="location='/settings'">Settings</button><button class="b bl" ontouchstart="location='/profiles'" onclick="location='/profiles'">Profiles</button></div></body></html>
 )rawliteral");
   
   return html;
@@ -460,7 +461,7 @@ const char* getConfigPageHTML() {
   snprintf(html, sizeof(html), R"rawliteral(
 <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WiFi Setup</title>
 <style>*{touch-action:manipulation}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:15px}.c{max-width:320px;margin:0 auto}.bk{color:#888;font-size:16px;margin-bottom:15px;display:inline-block;padding:10px 0}.bk:active{color:#fff}h1{text-align:center;color:#fff;font-size:20px}.fg{margin-bottom:15px}label{display:block;margin-bottom:5px;font-size:14px}input{width:100%%;padding:10px;border:1px solid #444;border-radius:5px;background:#333;color:#fff;box-sizing:border-box}.btn{width:100%%;padding:15px;border:none;border-radius:5px;background:#090;color:#fff;font-size:16px;margin-top:10px}.btn:active{background:#070}.info{text-align:center;color:#888;margin-top:20px;font-size:12px}.cur{background:#333;padding:12px;border-radius:5px;margin-bottom:15px;font-size:14px}</style></head>
-<body><div class="c"><span class="bk" ontouchend="location='/settings'" onclick="location='/settings'">&larr; Back to Settings</span><h1>WiFi Setup</h1>
+<body><div class="c"><span class="bk" ontouchstart="location='/settings'" onclick="location='/settings'">&larr; Back to Settings</span><h1>WiFi Setup</h1>
 <div class="cur"><p>SSID: <strong>%s</strong></p><p>IP: <strong>%s</strong></p><p>Status: <strong>%s</strong></p></div>
 <form action="/save-wifi" method="POST"><div class="fg"><label>WiFi Network (SSID)</label><input type="text" name="ssid" required maxlength="32"></div><div class="fg"><label>Password</label><input type="password" name="password" maxlength="64"></div><button type="submit" class="btn">Save and Connect</button></form>
 <div class="info"><p>Device will restart and connect to your WiFi.</p><p>http://filmdeveloper.local</p></div></div></body></html>
@@ -478,7 +479,7 @@ const char* getProfilesPageHTML() {
   snprintf(html, sizeof(html), R"rawliteral(
 <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Profiles</title>
 <style>*{touch-action:manipulation;box-sizing:border-box}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:15px}.c{max-width:360px;margin:0 auto}.hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}.hd h1{margin:0;font-size:20px}.bk{color:#888;font-size:18px;padding:10px 15px;margin:-10px -15px}.bk:active{color:#fff}.p{background:#333;border-radius:8px;padding:12px;margin-bottom:10px}.nm{font-size:16px;font-weight:bold;margin-bottom:8px}.tm{font-size:13px;color:#aaa;margin-bottom:10px}.bt{display:flex;gap:8px}.bt button{flex:1;padding:10px;border:none;border-radius:5px;color:#fff;font-size:14px;background:#555}.bt .use{background:#090}.bt .del{background:#900}.add{display:block;width:100%%;padding:15px;border:2px dashed #555;border-radius:8px;background:transparent;color:#888;font-size:16px;text-align:center;margin-top:15px}.add:active{border-color:#888;color:#fff}.empty{text-align:center;color:#666;padding:40px 0}#form{display:none;margin-top:15px;background:#222;padding:15px;border-radius:8px}#form input{width:100%%;padding:10px;border:1px solid #444;border-radius:5px;background:#333;color:#fff;margin-bottom:10px}.row{display:flex;align-items:center;gap:10px;margin-bottom:8px}.row span:first-child{flex:1}.row button{width:40px;height:40px;border:none;border-radius:5px;background:#505050;color:#fff;font-size:18px}.row .val{width:55px;text-align:center;font-family:monospace}.sv{display:flex;gap:10px;margin-top:10px}.sv button{flex:1;padding:12px;border:none;border-radius:5px;color:#fff;font-size:14px}.sv .ok{background:#090}.sv .no{background:#555}</style></head>
-<body><div class="c"><div class="hd"><span class="bk" ontouchend="location='/'" onclick="location='/'">&larr; Back</span><h1>Profiles</h1><div style="width:70px"></div></div>
+<body><div class="c"><div class="hd"><span class="bk" ontouchstart="location='/'" onclick="location='/'">&larr; Back</span><h1>Profiles</h1><div style="width:70px"></div></div>
 <div id="list"></div>
 <button class="add" onclick="showAdd()">+ Add Profile</button>
 <div id="form">
@@ -501,7 +502,7 @@ const char* getSettingsPageHTML() {
   snprintf(html, sizeof(html), R"rawliteral(
 <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"><title>Settings</title>
 <style>*{touch-action:manipulation}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:15px}.c{max-width:360px;margin:0 auto}.h{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}.h h1{margin:0;font-size:20px}.b{color:#888;font-size:18px;padding:10px 15px;margin:-10px -15px}.b:active{color:#fff}.r{display:flex;align-items:center;justify-content:space-between;padding:12px;background:#333;border-radius:8px;margin-bottom:8px}.n{font-size:18px}.ct{display:flex;align-items:center;gap:8px}.v{font-size:22px;font-family:monospace;min-width:65px;text-align:center}button{width:48px;height:48px;border:none;border-radius:8px;background:#505050;color:#fff;font-size:24px}button:active{background:#707070}.sw{position:relative;width:56px;height:32px}.sw input{opacity:0;width:0;height:0}.sl{position:absolute;cursor:pointer;inset:0;background:#555;border-radius:32px;transition:.2s}.sl:before{position:absolute;content:"";height:26px;width:26px;left:3px;bottom:3px;background:#fff;border-radius:50%%;transition:.2s}input:checked+.sl{background:#090}input:checked+.sl:before{transform:translateX(24px)}.s{color:#090;font-size:12px;margin:15px 0 8px;text-transform:uppercase}.w{display:block;text-align:center;margin-top:20px;padding:16px;background:#333;border-radius:8px;color:#090;font-size:18px}.w:active{background:#444}</style></head>
-<body><div class="c"><div class="h"><span class="b" ontouchend="location='/'" onclick="location='/'">&larr; Back</span><h1>Settings</h1><div style="width:70px"></div></div>
+<body><div class="c"><div class="h"><span class="b" ontouchstart="location='/'" onclick="location='/'">&larr; Back</span><h1>Settings</h1><div style="width:70px"></div></div>
 <div class="s">Stage Times</div>
 <div class="r"><span class="n">Developer</span><div class="ct"><button onclick="a('devTime',-5)">-</button><span class="v" id="devTime">%02d:%02d</span><button onclick="a('devTime',5)">+</button></div></div>
 <div class="r"><span class="n">Stop Bath</span><div class="ct"><button onclick="a('stopTime',-5)">-</button><span class="v" id="stopTime">%02d:%02d</span><button onclick="a('stopTime',5)">+</button></div></div>
@@ -513,7 +514,7 @@ const char* getSettingsPageHTML() {
 <div class="r"><span class="n">OT Speed</span><div class="ct"><button onclick="a('overtimeSpeed',-1)">-</button><span class="v" id="overtimeSpeed">%d%%</span><button onclick="a('overtimeSpeed',1)">+</button></div></div>
 <div class="s">Display</div>
 <div class="r"><span class="n">Rotate 180</span><label class="sw"><input type="checkbox" id="rot" %s onchange="t()"><span class="sl"></span></label></div>
-<div class="w" ontouchend="location='/config'" onclick="location='/config'">Setup WiFi</div></div>
+<div class="w" ontouchstart="location='/config'" onclick="location='/config'">Setup WiFi</div></div>
 <script>function a(s,d){fetch('/setting-adj?s='+s+'&d='+d).then(r=>r.json()).then(x=>{if(x.value!==undefined){let e=document.getElementById(s);e.textContent=(s==='speed'||s==='overtimeSpeed')?x.value+'%%':String(Math.floor(x.value/60)).padStart(2,'0')+':'+String(x.value%%60).padStart(2,'0')}})}function t(){fetch('/setting-rotate?v='+(document.getElementById('rot').checked?'1':'0'))}</script>
 </body></html>
 )rawliteral",
@@ -975,6 +976,11 @@ void setupWebServer() {
 
 // Start AP mode
 void startAPMode() {
+  // Generate SSID with last 4 characters of MAC address using ESP32 efuse MAC
+  uint8_t mac[6];
+  esp_efuse_mac_get_default(mac);
+  snprintf(AP_SSID, sizeof(AP_SSID), "FilmDev-%02X%02X", mac[4], mac[5]);
+  
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASS);
   apMode = true;
@@ -1276,13 +1282,13 @@ void createSettingsScreen1() {
   
   // Back button
   lv_obj_t *backBtn = lv_btn_create(settingsScreen1);
-  lv_obj_set_size(backBtn, 60, 40);
-  lv_obj_align(backBtn, LV_ALIGN_TOP_LEFT, 10, 10);
+  lv_obj_set_size(backBtn, 55, 55);
+  lv_obj_align(backBtn, LV_ALIGN_TOP_LEFT, 5, 4);
   lv_obj_add_event_cb(backBtn, settingsBackHandler, LV_EVENT_CLICKED, NULL);
   
   lv_obj_t *backLabel = lv_label_create(backBtn);
   lv_label_set_text(backLabel, LV_SYMBOL_LEFT);
-  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_28, 0);
   lv_obj_center(backLabel);
   
   // Title
@@ -1290,17 +1296,17 @@ void createSettingsScreen1() {
   lv_label_set_text(title, "Settings 1/4");
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
   
   // Next button (right arrow)
   lv_obj_t *nextBtn = lv_btn_create(settingsScreen1);
-  lv_obj_set_size(nextBtn, 60, 40);
-  lv_obj_align(nextBtn, LV_ALIGN_TOP_RIGHT, -10, 10);
+  lv_obj_set_size(nextBtn, 55, 55);
+  lv_obj_align(nextBtn, LV_ALIGN_TOP_RIGHT, -5, 4);
   lv_obj_add_event_cb(nextBtn, settingsNextHandler, LV_EVENT_CLICKED, NULL);
   
   lv_obj_t *nextLabel = lv_label_create(nextBtn);
   lv_label_set_text(nextLabel, LV_SYMBOL_RIGHT);
-  lv_obj_set_style_text_font(nextLabel, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(nextLabel, &lv_font_montserrat_28, 0);
   lv_obj_center(nextLabel);
   
   // Settings rows with more spacing
@@ -1318,13 +1324,13 @@ void createSettingsScreen2() {
   
   // Back button (to previous settings page)
   lv_obj_t *backBtn = lv_btn_create(settingsScreen2);
-  lv_obj_set_size(backBtn, 60, 40);
-  lv_obj_align(backBtn, LV_ALIGN_TOP_LEFT, 10, 10);
+  lv_obj_set_size(backBtn, 55, 55);
+  lv_obj_align(backBtn, LV_ALIGN_TOP_LEFT, 5, 4);
   lv_obj_add_event_cb(backBtn, settingsPrevHandler, LV_EVENT_CLICKED, NULL);
   
   lv_obj_t *backLabel = lv_label_create(backBtn);
   lv_label_set_text(backLabel, LV_SYMBOL_LEFT);
-  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_28, 0);
   lv_obj_center(backLabel);
   
   // Title
@@ -1332,17 +1338,17 @@ void createSettingsScreen2() {
   lv_label_set_text(title, "Settings 2/4");
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
   
   // Next button (right arrow)
   lv_obj_t *nextBtn = lv_btn_create(settingsScreen2);
-  lv_obj_set_size(nextBtn, 60, 40);
-  lv_obj_align(nextBtn, LV_ALIGN_TOP_RIGHT, -10, 10);
+  lv_obj_set_size(nextBtn, 55, 55);
+  lv_obj_align(nextBtn, LV_ALIGN_TOP_RIGHT, -5, 4);
   lv_obj_add_event_cb(nextBtn, settingsNextHandler, LV_EVENT_CLICKED, NULL);
   
   lv_obj_t *nextLabel = lv_label_create(nextBtn);
   lv_label_set_text(nextLabel, LV_SYMBOL_RIGHT);
-  lv_obj_set_style_text_font(nextLabel, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(nextLabel, &lv_font_montserrat_28, 0);
   lv_obj_center(nextLabel);
   
   // Settings rows with more spacing
@@ -1360,13 +1366,13 @@ void createSettingsScreen3() {
   
   // Back button (to previous settings page)
   lv_obj_t *backBtn = lv_btn_create(settingsScreen3);
-  lv_obj_set_size(backBtn, 60, 40);
-  lv_obj_align(backBtn, LV_ALIGN_TOP_LEFT, 10, 10);
+  lv_obj_set_size(backBtn, 55, 55);
+  lv_obj_align(backBtn, LV_ALIGN_TOP_LEFT, 5, 4);
   lv_obj_add_event_cb(backBtn, settingsPrevHandler, LV_EVENT_CLICKED, NULL);
   
   lv_obj_t *backLabel = lv_label_create(backBtn);
   lv_label_set_text(backLabel, LV_SYMBOL_LEFT);
-  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_28, 0);
   lv_obj_center(backLabel);
   
   // Title
@@ -1374,17 +1380,17 @@ void createSettingsScreen3() {
   lv_label_set_text(title, "Settings 3/4");
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
   
   // Next button (right arrow)
   lv_obj_t *nextBtn = lv_btn_create(settingsScreen3);
-  lv_obj_set_size(nextBtn, 60, 40);
-  lv_obj_align(nextBtn, LV_ALIGN_TOP_RIGHT, -10, 10);
+  lv_obj_set_size(nextBtn, 55, 55);
+  lv_obj_align(nextBtn, LV_ALIGN_TOP_RIGHT, -5, 4);
   lv_obj_add_event_cb(nextBtn, settingsNextHandler, LV_EVENT_CLICKED, NULL);
   
   lv_obj_t *nextLabel = lv_label_create(nextBtn);
   lv_label_set_text(nextLabel, LV_SYMBOL_RIGHT);
-  lv_obj_set_style_text_font(nextLabel, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(nextLabel, &lv_font_montserrat_28, 0);
   lv_obj_center(nextLabel);
   
   // Settings rows with more spacing
@@ -1417,8 +1423,8 @@ void wifiResetHandler(lv_event_t *e) {
   Serial.println("[WIFI] Settings reset, restarting...");
   
   // Update display before restart
-  if (wifiStatusLabel != NULL) {
-    lv_label_set_text(wifiStatusLabel, "Resetting...");
+  if (wifiSSIDLabel != NULL) {
+    lv_label_set_text(wifiSSIDLabel, "Resetting...");
   }
   lv_refr_now(NULL);
   
@@ -1428,27 +1434,29 @@ void wifiResetHandler(lv_event_t *e) {
 
 // Update WiFi status labels
 void updateWiFiStatusLabels() {
-  if (wifiStatusLabel != NULL) {
+  // Combined SSID and status label
+  if (wifiSSIDLabel != NULL) {
+    char buf[64];
     if (apMode) {
-      lv_label_set_text(wifiStatusLabel, "AP Mode");
+      snprintf(buf, sizeof(buf), "SSID: %s (AP Mode)", AP_SSID);
     } else if (wifiConnected) {
-      lv_label_set_text(wifiStatusLabel, "Connected");
+      snprintf(buf, sizeof(buf), "SSID: %s (Connected)", wifiConfig.ssid);
+    } else if (wifiConfig.configured) {
+      snprintf(buf, sizeof(buf), "SSID: %s (Disconnected)", wifiConfig.ssid);
     } else {
-      lv_label_set_text(wifiStatusLabel, "Disconnected");
+      snprintf(buf, sizeof(buf), "SSID: Not configured");
     }
+    lv_label_set_text(wifiSSIDLabel, buf);
   }
   
-  if (wifiSSIDLabel != NULL) {
+  // Password label (only shown in AP mode)
+  if (wifiPasswordLabel != NULL) {
     if (apMode) {
-      char buf[48];
-      snprintf(buf, sizeof(buf), "SSID: %s", AP_SSID);
-      lv_label_set_text(wifiSSIDLabel, buf);
-    } else if (wifiConfig.configured) {
-      char buf[48];
-      snprintf(buf, sizeof(buf), "SSID: %s", wifiConfig.ssid);
-      lv_label_set_text(wifiSSIDLabel, buf);
+      char buf[32];
+      snprintf(buf, sizeof(buf), "Pass: %s", AP_PASS);
+      lv_label_set_text(wifiPasswordLabel, buf);
     } else {
-      lv_label_set_text(wifiSSIDLabel, "SSID: Not configured");
+      lv_label_set_text(wifiPasswordLabel, "");
     }
   }
   
@@ -1472,13 +1480,13 @@ void createSettingsScreen4() {
   
   // Back button (to previous settings page)
   lv_obj_t *backBtn = lv_btn_create(settingsScreen4);
-  lv_obj_set_size(backBtn, 60, 40);
-  lv_obj_align(backBtn, LV_ALIGN_TOP_LEFT, 10, 10);
+  lv_obj_set_size(backBtn, 55, 55);
+  lv_obj_align(backBtn, LV_ALIGN_TOP_LEFT, 5, 4);
   lv_obj_add_event_cb(backBtn, settingsPrevHandler, LV_EVENT_CLICKED, NULL);
   
   lv_obj_t *backLabel = lv_label_create(backBtn);
   lv_label_set_text(backLabel, LV_SYMBOL_LEFT);
-  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_28, 0);
   lv_obj_center(backLabel);
   
   // Title
@@ -1486,41 +1494,35 @@ void createSettingsScreen4() {
   lv_label_set_text(title, "WiFi 4/4");
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 15);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
   
-  // WiFi Status
-  lv_obj_t *statusTitle = lv_label_create(settingsScreen4);
-  lv_label_set_text(statusTitle, "Status:");
-  lv_obj_set_style_text_color(statusTitle, lv_color_make(150, 150, 150), 0);
-  lv_obj_set_style_text_font(statusTitle, &lv_font_montserrat_14, 0);
-  lv_obj_set_pos(statusTitle, 10, 60);
-  
-  wifiStatusLabel = lv_label_create(settingsScreen4);
-  lv_label_set_text(wifiStatusLabel, "...");
-  lv_obj_set_style_text_color(wifiStatusLabel, lv_color_white(), 0);
-  lv_obj_set_style_text_font(wifiStatusLabel, &lv_font_montserrat_18, 0);
-  lv_obj_set_pos(wifiStatusLabel, 80, 58);
-  
-  // WiFi SSID
+  // WiFi SSID with status (combined)
   wifiSSIDLabel = lv_label_create(settingsScreen4);
   lv_label_set_text(wifiSSIDLabel, "SSID: ...");
   lv_obj_set_style_text_color(wifiSSIDLabel, lv_color_white(), 0);
-  lv_obj_set_style_text_font(wifiStatusLabel, &lv_font_montserrat_16, 0);
-  lv_obj_set_pos(wifiSSIDLabel, 10, 90);
+  lv_obj_set_style_text_font(wifiSSIDLabel, &lv_font_montserrat_16, 0);
+  lv_obj_set_pos(wifiSSIDLabel, 10, 65);
+  
+  // WiFi Password (shown only in AP mode)
+  wifiPasswordLabel = lv_label_create(settingsScreen4);
+  lv_label_set_text(wifiPasswordLabel, "");
+  lv_obj_set_style_text_color(wifiPasswordLabel, lv_color_make(180, 180, 180), 0);
+  lv_obj_set_style_text_font(wifiPasswordLabel, &lv_font_montserrat_14, 0);
+  lv_obj_set_pos(wifiPasswordLabel, 10, 88);
   
   // WiFi IP
   wifiIPLabel = lv_label_create(settingsScreen4);
   lv_label_set_text(wifiIPLabel, "IP: ...");
   lv_obj_set_style_text_color(wifiIPLabel, lv_color_white(), 0);
   lv_obj_set_style_text_font(wifiIPLabel, &lv_font_montserrat_16, 0);
-  lv_obj_set_pos(wifiIPLabel, 10, 120);
+  lv_obj_set_pos(wifiIPLabel, 10, 110);
   
   // mDNS info
   lv_obj_t *mdnsLabel = lv_label_create(settingsScreen4);
   lv_label_set_text(mdnsLabel, "http://filmdeveloper.local");
   lv_obj_set_style_text_color(mdnsLabel, lv_color_make(100, 200, 100), 0);
   lv_obj_set_style_text_font(mdnsLabel, &lv_font_montserrat_14, 0);
-  lv_obj_set_pos(mdnsLabel, 10, 150);
+  lv_obj_set_pos(mdnsLabel, 10, 138);
   
   // Reset WiFi button
   lv_obj_t *resetBtn = lv_btn_create(settingsScreen4);
@@ -1728,21 +1730,21 @@ void createDevelopScreen() {
   
   for (int i = 0; i < 4; i++) {
     stageButtons[i] = lv_btn_create(developScreen);
-    lv_obj_set_size(stageButtons[i], btnWidth, 45);
-    lv_obj_set_pos(stageButtons[i], startX + i * (btnWidth + btnSpacing), 10);
+    lv_obj_set_size(stageButtons[i], btnWidth, 75);
+    lv_obj_set_pos(stageButtons[i], startX + i * (btnWidth + btnSpacing), 5);
     lv_obj_add_event_cb(stageButtons[i], stageButtonHandler, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     
     lv_obj_t *label = lv_label_create(stageButtons[i]);
     lv_label_set_text(label, stageNames[i]);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_20, 0);
     lv_obj_center(label);
   }
   
-  // Timer display with up/down buttons (centered vertically)
+  // Timer display with up/down buttons (centered vertically between top buttons and bottom buttons)
   // Down button (left side)
   downBtn = lv_btn_create(developScreen);
   lv_obj_set_size(downBtn, 50, 50);
-  lv_obj_set_pos(downBtn, 40, 95);
+  lv_obj_set_pos(downBtn, 40, 105);
   lv_obj_set_style_bg_color(downBtn, lv_color_make(80, 80, 80), 0);
   lv_obj_add_event_cb(downBtn, timerDownHandler, LV_EVENT_CLICKED, NULL);
   
@@ -1756,12 +1758,12 @@ void createDevelopScreen() {
   lv_label_set_text(timerLabel, "00:00");
   lv_obj_set_style_text_color(timerLabel, lv_color_white(), 0);
   lv_obj_set_style_text_font(timerLabel, &lv_font_montserrat_48, 0);
-  lv_obj_align(timerLabel, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_align(timerLabel, LV_ALIGN_CENTER, 0, 10);
   
   // Up button (right side)
   upBtn = lv_btn_create(developScreen);
   lv_obj_set_size(upBtn, 50, 50);
-  lv_obj_set_pos(upBtn, 230, 95);
+  lv_obj_set_pos(upBtn, 230, 105);
   lv_obj_set_style_bg_color(upBtn, lv_color_make(80, 80, 80), 0);
   lv_obj_add_event_cb(upBtn, timerUpHandler, LV_EVENT_CLICKED, NULL);
   
@@ -2042,14 +2044,14 @@ void createProfilesScreen() {
   
   // Back button
   lv_obj_t *backBtn = lv_btn_create(profilesScreen);
-  lv_obj_set_size(backBtn, 50, 40);
-  lv_obj_set_pos(backBtn, 10, 5);
+  lv_obj_set_size(backBtn, 55, 55);
+  lv_obj_set_pos(backBtn, 5, 4);
   lv_obj_set_style_bg_color(backBtn, lv_color_make(60, 60, 60), 0);
   lv_obj_add_event_cb(backBtn, profilesBackHandler, LV_EVENT_CLICKED, NULL);
   
   lv_obj_t *backLabel = lv_label_create(backBtn);
   lv_label_set_text(backLabel, LV_SYMBOL_LEFT);
-  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_18, 0);
+  lv_obj_set_style_text_font(backLabel, &lv_font_montserrat_28, 0);
   lv_obj_center(backLabel);
   
   // Title
@@ -2057,12 +2059,12 @@ void createProfilesScreen() {
   lv_label_set_text(title, "Profiles");
   lv_obj_set_style_text_color(title, lv_color_white(), 0);
   lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+  lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
   
   // Scrollable list container
   profilesList = lv_obj_create(profilesScreen);
-  lv_obj_set_size(profilesList, 300, 180);
-  lv_obj_set_pos(profilesList, 10, 50);
+  lv_obj_set_size(profilesList, 300, 170);
+  lv_obj_set_pos(profilesList, 10, 65);
   lv_obj_set_style_bg_color(profilesList, lv_color_black(), 0);
   lv_obj_set_style_border_width(profilesList, 0, 0);
   lv_obj_set_style_pad_all(profilesList, 0, 0);
