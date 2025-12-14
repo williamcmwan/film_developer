@@ -6,8 +6,8 @@ An ESP32-based film developer controller with LVGL touch interface for automated
 
 - **Multi-Screen Interface**: Splash screen, main menu, settings (4 pages), development screen, and profiles screen
 - **WiFi Connectivity**: Connect to your home network or use AP mode for configuration
-- **Web Interface**: Control the device from any browser via http://filmdeveloper.local
-- **mDNS Support**: Easy access without knowing the IP address
+- **Web Interface**: Control the device from any browser via http://\<devicename\>.local
+- **mDNS Support**: Easy access with user-configurable device name
 - **Development Profiles**: Save and load multiple development profiles via web interface
 - **4-Stage Development Process**: Developer, Stop Bath, Fixer, and Rinse stages
 - **Countdown Timer**: Large 48pt font MM:SS format with adjustable time (5-second intervals)
@@ -132,7 +132,7 @@ Access saved development profiles from the main menu or web interface:
 - When profiles exist, shows scrollable list with "Use" button for each
 - Tapping "Use" applies the profile settings and shows confirmation toast
 
-**Web Interface (http://filmdeveloper.local/profiles):**
+**Web Interface (http://\<devicename\>.local/profiles):**
 - View all saved profiles with timing details
 - Add new profiles with custom name and timing settings
 - Edit existing profiles
@@ -162,7 +162,7 @@ Configure development parameters across four pages:
 - WiFi Status: Shows current connection status (AP Mode, Connected, Disconnected)
 - SSID: Current network name
 - IP Address: Device IP address
-- mDNS URL: http://filmdeveloper.local
+- mDNS URL: http://\<devicename\>.local (dynamic based on device name)
 - Reset WiFi button: Clear WiFi settings and restart in AP mode
 
 Use +/- buttons to adjust values. Time settings adjust in 5-second increments, speed in 5% increments, overtime speed in 1% increments. All settings are automatically saved to flash memory and persist across reboots.
@@ -207,17 +207,20 @@ This allows complete operation without touching the screen!
 
 ### Initial Setup (AP Mode)
 1. On first boot (or after WiFi reset), the device creates a WiFi hotspot:
-   - SSID: `FilmDeveloper`
+   - SSID: `FilmDev-xxxx` (xxxx = last 4 characters of MAC address in lowercase)
    - Password: `12345678`
 2. Connect to this network with your phone or computer
 3. Open a browser and go to `http://192.168.4.1` (or any URL - captive portal will redirect)
-4. Enter your home WiFi network name (SSID) and password
+4. Configure the following:
+   - **Device Name**: Used for mDNS access (default: same as SSID, e.g., `FilmDev-a1b2`)
+   - **WiFi Network (SSID)**: Your home WiFi network name
+   - **Password**: Your WiFi password
 5. Click "Save & Connect" - the device will restart and connect to your network
 
 ### Normal Operation (Station Mode)
 Once configured, the device connects to your WiFi network automatically on boot.
 
-Access the web interface at: **http://filmdeveloper.local**
+Access the web interface at: **http://\<devicename\>.local** (e.g., `http://FilmDev-a1b2.local`)
 
 The web interface provides:
 - **Home**: Main menu with links to Develop, Settings, and Profiles
@@ -234,7 +237,7 @@ To reconfigure WiFi or switch networks:
 ### Troubleshooting
 - If the device can't connect to your WiFi, it will automatically fall back to AP mode
 - Check Serial Monitor (115200 baud) for WiFi connection status
-- mDNS (filmdeveloper.local) requires your device to support mDNS/Bonjour
+- mDNS (\<devicename\>.local) requires your device to support mDNS/Bonjour
   - Works on most modern devices (iOS, macOS, Windows 10+, Linux with Avahi)
   - If mDNS doesn't work, use the IP address shown on the WiFi settings screen
 
@@ -306,7 +309,7 @@ To reconfigure WiFi or switch networks:
 │ Status: Connected           │
 │ SSID: MyNetwork             │
 │ IP: 192.168.1.100           │
-│ http://filmdeveloper.local  │
+│ http://FilmDev-a1b2.local   │
 │                             │
 │    [  Reset WiFi  ]         │
 └─────────────────────────────┘

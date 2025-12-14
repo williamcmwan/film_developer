@@ -68,6 +68,7 @@ const byte DNS_PORT = 53;
 struct WiFiConfig {
   char ssid[33];
   char password[65];
+  char deviceName[33];  // mDNS name (user configurable)
   bool configured;
 } wifiConfig;
 
@@ -86,15 +87,15 @@ int profileCount = 0;
 
 bool wifiConnected = false;
 bool apMode = true;
-char AP_SSID[20] = "FilmDev-XXXX";  // Will be set with MAC suffix
+char AP_SSID[20] = "FilmDev-xxxx";  // Will be set with MAC suffix (lowercase)
 const char* AP_PASS = "12345678";
-const char* MDNS_NAME = "filmdeveloper";
 
 // WiFi screen
 lv_obj_t *wifiScreen;
 lv_obj_t *wifiSSIDLabel;
 lv_obj_t *wifiPasswordLabel;
 lv_obj_t *wifiIPLabel;
+lv_obj_t *wifiMdnsLabel;
 
 // LVGL display buffer
 static lv_disp_draw_buf_t draw_buf;
@@ -336,8 +337,10 @@ void loadWiFiSettings() {
   wifiConfig.configured = preferences.getBool("configured", false);
   String ssid = preferences.getString("ssid", "");
   String pass = preferences.getString("password", "");
+  String devName = preferences.getString("deviceName", "");
   strncpy(wifiConfig.ssid, ssid.c_str(), sizeof(wifiConfig.ssid) - 1);
   strncpy(wifiConfig.password, pass.c_str(), sizeof(wifiConfig.password) - 1);
+  strncpy(wifiConfig.deviceName, devName.c_str(), sizeof(wifiConfig.deviceName) - 1);
   preferences.end();
   
   Serial.print("[WIFI] Settings loaded, configured: ");
@@ -350,6 +353,7 @@ void saveWiFiSettings() {
   preferences.putBool("configured", wifiConfig.configured);
   preferences.putString("ssid", wifiConfig.ssid);
   preferences.putString("password", wifiConfig.password);
+  preferences.putString("deviceName", wifiConfig.deviceName);
   preferences.end();
   
   Serial.println("[WIFI] Settings saved");
@@ -360,6 +364,7 @@ void resetWiFiSettings() {
   wifiConfig.configured = false;
   memset(wifiConfig.ssid, 0, sizeof(wifiConfig.ssid));
   memset(wifiConfig.password, 0, sizeof(wifiConfig.password));
+  memset(wifiConfig.deviceName, 0, sizeof(wifiConfig.deviceName));
   saveWiFiSettings();
   
   Serial.println("[WIFI] Settings reset");
@@ -456,19 +461,24 @@ const char* getDevelopPageHTML() {
 }
 
 const char* getConfigPageHTML() {
-  static char html[2500];
+  static char html[2800];
+  
+  // Get default device name (AP_SSID if not set)
+  const char* defaultDevName = strlen(wifiConfig.deviceName) > 0 ? wifiConfig.deviceName : AP_SSID;
   
   snprintf(html, sizeof(html), R"rawliteral(
 <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WiFi Setup</title>
-<style>*{touch-action:manipulation}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:15px}.c{max-width:320px;margin:0 auto}.bk{color:#888;font-size:16px;margin-bottom:15px;display:inline-block;padding:10px 0}.bk:active{color:#fff}h1{text-align:center;color:#fff;font-size:20px}.fg{margin-bottom:15px}label{display:block;margin-bottom:5px;font-size:14px}input{width:100%%;padding:10px;border:1px solid #444;border-radius:5px;background:#333;color:#fff;box-sizing:border-box}.btn{width:100%%;padding:15px;border:none;border-radius:5px;background:#090;color:#fff;font-size:16px;margin-top:10px}.btn:active{background:#070}.info{text-align:center;color:#888;margin-top:20px;font-size:12px}.cur{background:#333;padding:12px;border-radius:5px;margin-bottom:15px;font-size:14px}</style></head>
+<style>*{touch-action:manipulation}body{font-family:Arial;background:#000;color:#fff;margin:0;padding:15px}.c{max-width:320px;margin:0 auto}.bk{color:#888;font-size:16px;margin-bottom:15px;display:inline-block;padding:10px 0}.bk:active{color:#fff}h1{text-align:center;color:#fff;font-size:20px}.fg{margin-bottom:15px}label{display:block;margin-bottom:5px;font-size:14px}input{width:100%%;padding:10px;border:1px solid #444;border-radius:5px;background:#333;color:#fff;box-sizing:border-box}.btn{width:100%%;padding:15px;border:none;border-radius:5px;background:#090;color:#fff;font-size:16px;margin-top:10px}.btn:active{background:#070}.info{text-align:center;color:#888;margin-top:20px;font-size:12px}.cur{background:#333;padding:12px;border-radius:5px;margin-bottom:15px;font-size:14px}.hint{color:#666;font-size:11px;margin-top:3px}</style></head>
 <body><div class="c"><span class="bk" ontouchstart="location='/settings'" onclick="location='/settings'">&larr; Back to Settings</span><h1>WiFi Setup</h1>
 <div class="cur"><p>SSID: <strong>%s</strong></p><p>IP: <strong>%s</strong></p><p>Status: <strong>%s</strong></p></div>
-<form action="/save-wifi" method="POST"><div class="fg"><label>WiFi Network (SSID)</label><input type="text" name="ssid" required maxlength="32"></div><div class="fg"><label>Password</label><input type="password" name="password" maxlength="64"></div><button type="submit" class="btn">Save and Connect</button></form>
-<div class="info"><p>Device will restart and connect to your WiFi.</p><p>http://filmdeveloper.local</p></div></div></body></html>
+<form action="/save-wifi" method="POST"><div class="fg"><label>Device Name</label><input type="text" name="deviceName" value="%s" maxlength="32"><p class="hint">Used for http://&lt;name&gt;.local access</p></div><div class="fg"><label>WiFi Network (SSID)</label><input type="text" name="ssid" required maxlength="32"></div><div class="fg"><label>Password</label><input type="password" name="password" maxlength="64"></div><button type="submit" class="btn">Save and Connect</button></form>
+<div class="info"><p>Device will restart and connect to your WiFi.</p><p>http://%s.local</p></div></div></body></html>
 )rawliteral", 
     wifiConfig.configured ? wifiConfig.ssid : "Not configured",
     apMode ? WiFi.softAPIP().toString().c_str() : (wifiConnected ? WiFi.localIP().toString().c_str() : "--"),
-    wifiConnected ? "Connected" : (apMode ? "AP Mode" : "Disconnected"));
+    wifiConnected ? "Connected" : (apMode ? "AP Mode" : "Disconnected"),
+    defaultDevName,
+    defaultDevName);
   
   return html;
 }
@@ -576,14 +586,26 @@ void handleSaveWiFi() {
   if (server.hasArg("ssid")) {
     String ssid = server.arg("ssid");
     String password = server.arg("password");
+    String deviceName = server.arg("deviceName");
+    
+    // Use AP_SSID as default if device name is empty
+    if (deviceName.length() == 0) {
+      deviceName = AP_SSID;
+    }
     
     strncpy(wifiConfig.ssid, ssid.c_str(), sizeof(wifiConfig.ssid) - 1);
     strncpy(wifiConfig.password, password.c_str(), sizeof(wifiConfig.password) - 1);
+    strncpy(wifiConfig.deviceName, deviceName.c_str(), sizeof(wifiConfig.deviceName) - 1);
     wifiConfig.configured = true;
     saveWiFiSettings();
     
-    // Send page with auto-redirect to filmdeveloper.local
-    server.send(200, "text/html", R"rawliteral(
+    // Build redirect URL with device name
+    char redirectUrl[64];
+    snprintf(redirectUrl, sizeof(redirectUrl), "http://%s.local", wifiConfig.deviceName);
+    
+    // Send page with auto-redirect to device name
+    char html[1024];
+    snprintf(html, sizeof(html), R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
@@ -591,8 +613,8 @@ void handleSaveWiFi() {
   <title>WiFi Saved</title>
   <style>
     body { font-family: Arial; background: #1a1a1a; color: white; text-align: center; padding: 50px; }
-    .spinner { border: 4px solid #333; border-top: 4px solid #4CAF50; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .spinner { border: 4px solid #333; border-top: 4px solid #4CAF50; border-radius: 50%%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
+    @keyframes spin { 0%% { transform: rotate(0deg); } 100%% { transform: rotate(360deg); } }
     a { color: #4CAF50; }
   </style>
 </head>
@@ -600,16 +622,18 @@ void handleSaveWiFi() {
   <h1>WiFi Saved!</h1>
   <div class="spinner"></div>
   <p>Connecting to your network...</p>
-  <p>You will be redirected to <a href="http://filmdeveloper.local">http://filmdeveloper.local</a></p>
+  <p>You will be redirected to <a href="%s">%s</a></p>
   <p style="color:#888;font-size:14px;">If redirect doesn't work, connect to your WiFi network and open the link manually.</p>
   <script>
     setTimeout(function() {
-      window.location.href = 'http://filmdeveloper.local';
+      window.location.href = '%s';
     }, 10000);
   </script>
 </body>
 </html>
-)rawliteral");
+)rawliteral", redirectUrl, redirectUrl, redirectUrl);
+    
+    server.send(200, "text/html", html);
     delay(500);
     ESP.restart();
   } else {
@@ -976,10 +1000,15 @@ void setupWebServer() {
 
 // Start AP mode
 void startAPMode() {
-  // Generate SSID with last 4 characters of MAC address using ESP32 efuse MAC
+  // Generate SSID with last 4 characters of MAC address using ESP32 efuse MAC (lowercase)
   uint8_t mac[6];
   esp_efuse_mac_get_default(mac);
-  snprintf(AP_SSID, sizeof(AP_SSID), "FilmDev-%02X%02X", mac[4], mac[5]);
+  snprintf(AP_SSID, sizeof(AP_SSID), "FilmDev-%02x%02x", mac[4], mac[5]);
+  
+  // Set default device name to AP_SSID if not configured
+  if (strlen(wifiConfig.deviceName) == 0) {
+    strncpy(wifiConfig.deviceName, AP_SSID, sizeof(wifiConfig.deviceName) - 1);
+  }
   
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASS);
@@ -1019,10 +1048,12 @@ void connectToWiFi() {
     wifiConnected = true;
     apMode = false;
     
-    // Start mDNS
-    if (MDNS.begin(MDNS_NAME)) {
+    // Start mDNS with user-configured device name
+    if (MDNS.begin(wifiConfig.deviceName)) {
       MDNS.addService("http", "tcp", 80);
-      Serial.println("[WIFI] mDNS started: http://filmdeveloper.local");
+      Serial.print("[WIFI] mDNS started: http://");
+      Serial.print(wifiConfig.deviceName);
+      Serial.println(".local");
     }
     
     Serial.println();
@@ -1471,6 +1502,14 @@ void updateWiFiStatusLabels() {
     }
     lv_label_set_text(wifiIPLabel, buf);
   }
+  
+  // mDNS label (show device name URL)
+  if (wifiMdnsLabel != NULL) {
+    char buf[64];
+    const char* devName = strlen(wifiConfig.deviceName) > 0 ? wifiConfig.deviceName : AP_SSID;
+    snprintf(buf, sizeof(buf), "http://%s.local", devName);
+    lv_label_set_text(wifiMdnsLabel, buf);
+  }
 }
 
 // Settings Screen 4 (WiFi)
@@ -1517,12 +1556,12 @@ void createSettingsScreen4() {
   lv_obj_set_style_text_font(wifiIPLabel, &lv_font_montserrat_16, 0);
   lv_obj_set_pos(wifiIPLabel, 10, 110);
   
-  // mDNS info
-  lv_obj_t *mdnsLabel = lv_label_create(settingsScreen4);
-  lv_label_set_text(mdnsLabel, "http://filmdeveloper.local");
-  lv_obj_set_style_text_color(mdnsLabel, lv_color_make(100, 200, 100), 0);
-  lv_obj_set_style_text_font(mdnsLabel, &lv_font_montserrat_14, 0);
-  lv_obj_set_pos(mdnsLabel, 10, 138);
+  // mDNS info (dynamic based on device name)
+  wifiMdnsLabel = lv_label_create(settingsScreen4);
+  lv_label_set_text(wifiMdnsLabel, "http://...");
+  lv_obj_set_style_text_color(wifiMdnsLabel, lv_color_make(100, 200, 100), 0);
+  lv_obj_set_style_text_font(wifiMdnsLabel, &lv_font_montserrat_14, 0);
+  lv_obj_set_pos(wifiMdnsLabel, 10, 138);
   
   // Reset WiFi button
   lv_obj_t *resetBtn = lv_btn_create(settingsScreen4);
@@ -1998,7 +2037,10 @@ void updateProfilesList() {
   if (profileCount == 0) {
     // Show instruction message when no profiles - centered in screen
     lv_obj_t *msgLabel = lv_label_create(profilesList);
-    lv_label_set_text(msgLabel, "Setup WiFi and add\nprofiles using\nhttp://filmdeveloper.local\nfrom mobile browser");
+    char msgBuf[128];
+    const char* devName = strlen(wifiConfig.deviceName) > 0 ? wifiConfig.deviceName : AP_SSID;
+    snprintf(msgBuf, sizeof(msgBuf), "Setup WiFi and add\nprofiles using\nhttp://%s.local\nfrom mobile browser", devName);
+    lv_label_set_text(msgLabel, msgBuf);
     lv_obj_set_style_text_color(msgLabel, lv_color_make(150, 150, 150), 0);
     lv_obj_set_style_text_font(msgLabel, &lv_font_montserrat_18, 0);
     lv_obj_set_style_text_align(msgLabel, LV_TEXT_ALIGN_CENTER, 0);
